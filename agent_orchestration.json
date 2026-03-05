@@ -1,0 +1,8 @@
+{
+  "agents": [
+    {"name": "PurposeGuide", "tools": ["ProfileDB", "ZKProof", "Wallet"]},
+    {"name": "Verifier", "tools": ["DocCheck", "FaceMatch", "AttestationRegistry"]}
+  ],
+  "policies": {"pii_handling": "zk-first", "handoff_timeout_s": 60},
+  "events": ["OnMint", "OnUpgrade", "OnRevocation"]
+}

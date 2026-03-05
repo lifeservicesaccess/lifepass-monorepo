@@ -1,0 +1,8 @@
+{
+  "predicate": "over18",
+  "inputs": ["birth_year", "current_year"],
+  "public_outputs": ["is_over_18"],
+  "privacy_goal": "hide exact birth year (only the over‑18 predicate is revealed)",
+  "proof_system": "groth16",
+  "targets": ["web", "mobile", "node"]
+}

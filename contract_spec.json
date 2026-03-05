@@ -1,0 +1,15 @@
+{
+  "name": "LifePassSBT",
+  "standard": "ERC721Soulbound",
+  "roles": ["ADMIN", "VERIFIER", "MINTER", "PAUSER"],
+  "metadata": ["purpose", "trust_score", "verification_level", "did_uri"],
+  "events": ["Minted", "Revoked", "Updated"],
+  "access_rules": {
+    "mint": ["VERIFIER"],
+    "update": ["OWNER", "VERIFIER"],
+    "revoke": ["ADMIN"]
+  },
+  "zk_hooks": [
+    {"predicate": "over18", "verifier": "AgeVerifier"}
+  ]
+}
