@@ -10,6 +10,8 @@ const { ethers } = require('ethers');
 const app = express();
 app.use(express.json());
 
+const { body, validationResult } = require('express-validator');
+
 // Load environment variables
 const RPC_URL = process.env.RPC_URL || "https://rpc-mumbai.maticvigil.com"; // default to Polygon Mumbai
 const PRIVATE_KEY = process.env.PRIVATE_KEY; // private key used for signing transactions
@@ -53,6 +55,25 @@ app.post('/proof/submit', async (req, res) => {
   }
 });
 
+// POST /proof/verify-onchain
+const onchainVerifier = require('./tools/onchainVerifier');
+app.post('/proof/verify-onchain',
+  requireApiKey,
+  body('proof').exists(),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
+    try {
+      const payload = req.body;
+      const result = await onchainVerifier.verifyOnChain(payload);
+      return res.json({ success: true, result });
+    } catch (err) {
+      console.error('verify-onchain error', err);
+      res.status(500).json({ success: false, error: 'Verify error' });
+    }
+  }
+);
+
 /**
  * POST /sbt/mint
  * Mint a new LifePass SBT.  Requires a previously verified proof (off‑chain enforcement) and
@@ -77,7 +98,56 @@ app.post('/sbt/mint', async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 3000;
+// Integrate PurposeGuide agent with mock tools
+const PurposeGuide = require('../../agents/purpose_guide_agent');
+const profileDb = require('./tools/profileDb');
+const zkProof = require('./tools/zkProof');
+const walletTool = require('./tools/wallet');
+
+const onchainVerifier = require('./tools/onchainVerifier');
+const agent = new PurposeGuide(profileDb, zkProof, walletTool);
+
+// Simple API key middleware (set API_KEY env var to enable)
+function requireApiKey(req, res, next) {
+  const apiKey = process.env.API_KEY;
+  if (!apiKey) return next(); // no enforcement if not configured
+  const provided = req.header('x-api-key');
+  if (!provided || provided !== apiKey) return res.status(401).json({ success: false, error: 'Unauthorized' });
+  next();
+}
+
+/**
+ * POST /flow/mint
+ * High-level flow: fetch profile, generate + verify ZK proof, then mint SBT (simulated)
+ */
+app.post('/flow/mint',
+  requireApiKey,
+  body('userId').isString().notEmpty(),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
+    try {
+      const { userId, mintOptions } = req.body || {};
+      // Fetch profile
+      const profile = await profileDb.getProfile(userId);
+      if (!profile) return res.status(404).json({ success: false, error: 'Profile not found' });
+      // Generate ZK proof
+      const proof = await zkProof.generateOver18Proof(userId, profile);
+      // Verify on-chain
+      const verifyResult = await onchainVerifier.verifyOnChain(proof);
+      if (!verifyResult.verified) return res.status(400).json({ success: false, error: 'On-chain verification failed', verifyResult });
+      // Mint SBT
+      const result = await agent.handleMint(userId, mintOptions);
+      if (result && result.status === 'submitted') return res.json({ success: true, result, verifyResult });
+      return res.status(400).json({ success: false, result, verifyResult });
+    } catch (err) {
+      console.error('flow/mint error', err);
+      res.status(500).json({ success: false, error: 'Flow error' });
+    }
+  }
+);
+
+const PORT = process.env.PORT || 3003;
 app.listen(PORT, () => {
   console.log(`API server listening on port ${PORT}`);
 });
