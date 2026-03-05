@@ -10,11 +10,11 @@
   "dependencies": {
     "@rainbow-me/rainbowkit": "^0.12.4",
     "axios": "^1.4.0",
-    "ethers": "^6.16.0",
+    "ethers": "^5.7.2",
     "next": "^14.2.35",
     "react": "18.2.0",
     "react-dom": "18.2.0",
-    "wagmi": "^3.5.0",
+    "wagmi": "^0.12.19",
     "ws": "^8.19.0"
   },
   "devDependencies": {

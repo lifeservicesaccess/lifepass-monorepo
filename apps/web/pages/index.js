@@ -62,13 +62,14 @@ export default function Home() {
   }
 
   return (
-    <main style={{ maxWidth: '600px', margin: '2rem auto', padding: '1rem' }}>
-      <h1>LifePass SBT Minting</h1>
-      <p>Enter your birth year and connect your wallet to mint a LifePass soulbound token.</p>
-      <div style={{ marginBottom: '1rem' }}>
-        <label>
-          Birth year:&nbsp;
+    <main className="max-w-xl mx-auto mt-8 p-4">
+      <h1 className="text-2xl font-semibold mb-2">LifePass SBT Minting</h1>
+      <p className="text-sm text-slate-700 mb-4">Enter your birth year and connect your wallet to mint a LifePass soulbound token.</p>
+      <div className="mb-4">
+        <label className="flex items-center gap-2">
+          <span className="text-sm">Birth year:</span>
           <input
+            className="border rounded px-2 py-1 w-32"
             type="number"
             value={birthYear}
             onChange={(e) => setBirthYear(e.target.value)}
@@ -76,16 +77,26 @@ export default function Home() {
           />
         </label>
       </div>
-      {/* Wallet connection button */}
-      <div style={{ marginBottom: '1rem' }}>
+      <div className="mb-4">
         <ConnectButton showBalance={false} />
       </div>
-      <button onClick={handleMint} disabled={!birthYear || !wallet}>
+      <button
+        onClick={handleMint}
+        disabled={!birthYear || !wallet}
+        className="bg-blue-600 text-white px-4 py-2 rounded disabled:opacity-50"
+      >
         Submit Proof & Mint
       </button>
       {status && (
-        <p style={{ marginTop: '1rem' }}>{status}</p>
+        <p className="mt-4 text-sm text-slate-800">{status}</p>
       )}
     </main>
   );
 }
+
+// Dummy edit to trigger HMR during diagnostics: no functional change. TS: 1701
+// HMR touch: 2026-03-05T22:06:32.2241970+01:00
+\n// HMR touch after middleware: 2026-03-05T22:07:39.9389160+01:00
+\n// HMR touch after middleware update: 2026-03-05T22:08:09.3835039+01:00
+
+// HMR probe: 2026-03-05T22:09:37.4711415+01:00
