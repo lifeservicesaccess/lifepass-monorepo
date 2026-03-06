@@ -1,6 +1,6 @@
 const http = require('http');
 
-const payload = JSON.stringify({ publicSignals: { is_over_18: 1 }, proof: 'SIMULATED' });
+const payload = JSON.stringify({ publicSignals: { is_over_18: 1 }, proof: '0x1234' });
 const options = {
   hostname: 'localhost',
   port: 3003,

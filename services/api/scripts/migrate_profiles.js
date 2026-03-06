@@ -1,4 +1,7 @@
 const { Client } = require('pg');
+const { loadApiEnv } = require('../tools/loadEnv');
+
+loadApiEnv();
 
 async function migrate() {
   const conn = process.env.PG_CONNECTION_STRING || process.env.DATABASE_URL;

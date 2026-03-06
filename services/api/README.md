@@ -18,6 +18,14 @@
 ### Environment
 - `PG_CONNECTION_STRING` or `DATABASE_URL` for Postgres
 - `RPC_URL`, `PRIVATE_KEY`, `SBT_CONTRACT_ADDRESS`, `AGE_VERIFIER_ADDRESS` for contract ops
+- Optional real ZK mode: set `USE_SNARKJS=1` and provide `SNARK_WASM_PATH`, `SNARK_ZKEY_PATH`, `SNARK_VKEY_PATH`
+
+Validate SNARK artifacts/config explicitly:
+
+```powershell
+cd services/api
+npm run validate:snark
+```
 
 ## Mode Switching & Readiness Checklist
 
@@ -64,3 +72,6 @@ powershell -ExecutionPolicy Bypass -File .\scripts\testnet-smoke.ps1 -Mode testn
 ```
 
 In strict testnet mode, the script now also verifies that `SBT_CONTRACT_ADDRESS` has deployed bytecode on the configured `RPC_URL` before API startup.
+
+If `USE_SNARKJS=1`, preflight/readiness checks also require valid `SNARK_WASM_PATH`, `SNARK_ZKEY_PATH`, and `SNARK_VKEY_PATH` values.
+During `scripts/testnet-smoke.ps1`, `npm run validate:snark` is also executed before endpoint smoke tests when `USE_SNARKJS=1`.

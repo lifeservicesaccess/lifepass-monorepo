@@ -1,5 +1,9 @@
 const express = require('express');
 const { ethers } = require('ethers');
+const onchainVerifier = require('./tools/onchainVerifier');
+const { loadApiEnv } = require('./tools/loadEnv');
+
+loadApiEnv();
 
 /**
  * Simple REST API for interacting with the LifePass smart contract and zk‑proof verifier.  This
@@ -14,7 +18,7 @@ const { body, validationResult } = require('express-validator');
 
 // Load environment variables
 const RPC_URL = process.env.RPC_URL || "https://rpc-mumbai.maticvigil.com"; // default to Polygon Mumbai
-const PRIVATE_KEY = process.env.PRIVATE_KEY; // private key used for signing transactions
+const PRIVATE_KEY = process.env.PRIVATE_KEY;
 const SBT_CONTRACT_ADDRESS = process.env.SBT_CONTRACT_ADDRESS;
 const AGE_VERIFIER_ADDRESS = process.env.AGE_VERIFIER_ADDRESS;
 
@@ -34,21 +38,23 @@ const sbtContract = SBT_CONTRACT_ADDRESS && wallet
 
 /**
  * POST /proof/submit
- * Receive a zkSNARK proof for the over‑18 predicate.  This endpoint would normally verify
- * the proof on‑chain (via an AgeVerifier contract) or off‑chain using snarkjs.  For now we
- * simulate verification and return success=true if the proof payload contains a field
- * `is_over_18` equal to 1.
+ * Receive a zkSNARK proof for the over-18 predicate and verify it through the shared
+ * verification utility. If verifier contract config is absent, this falls back to local
+ * deterministic verification.
  */
 app.post('/proof/submit', async (req, res) => {
   try {
     const { proof, publicSignals } = req.body;
-    // TODO: Use snarkjs or call the AgeVerifier contract via ethers to verify the proof.
-    const isOver18 = publicSignals && Number(publicSignals.is_over_18) === 1;
-    if (!isOver18) {
-      return res.status(400).json({ success: false, error: 'Proof indicates user is under 18' });
+    if (!proof || !publicSignals) {
+      return res.status(400).json({ success: false, error: 'Missing proof or publicSignals' });
     }
-    // If integrated with a verifier contract: await verifierContract.verifyProof(proof, publicSignals);
-    res.json({ success: true, message: 'Proof verified' });
+
+    const verifyResult = await onchainVerifier.verifyOnChain({ proof, publicSignals });
+    if (!verifyResult.verified) {
+      return res.status(400).json({ success: false, error: 'Proof verification failed', verifyResult });
+    }
+
+    res.json({ success: true, message: 'Proof verified', verifyResult });
   } catch (err) {
     console.error(err);
     res.status(500).json({ success: false, error: 'Error verifying proof' });
@@ -56,7 +62,6 @@ app.post('/proof/submit', async (req, res) => {
 });
 
 // POST /proof/verify-onchain
-const onchainVerifier = require('./tools/onchainVerifier');
 app.post('/proof/verify-onchain',
   requireApiKey,
   body('proof').exists(),

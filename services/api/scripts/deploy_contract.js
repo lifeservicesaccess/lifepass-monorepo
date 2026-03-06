@@ -2,6 +2,9 @@ const fs = require('fs');
 const path = require('path');
 const solc = require('solc');
 const { ethers } = require('ethers');
+const { loadApiEnv } = require('../tools/loadEnv');
+
+loadApiEnv();
 
 function makeImportResolver(baseFilePath) {
   return function findImports(importPath) {

@@ -1,4 +1,8 @@
 const { Client } = require('pg');
+const profileDb = require('../tools/profileDb');
+const { loadApiEnv } = require('../tools/loadEnv');
+
+loadApiEnv();
 
 const seedData = {
   "user-123": { userId: "user-123", name: "Alice Example", dob: "2000-01-01", email: "alice@example.com" },
@@ -8,8 +12,11 @@ const seedData = {
 async function seed() {
   const conn = process.env.PG_CONNECTION_STRING || process.env.DATABASE_URL;
   if (!conn) {
-    console.error('Set PG_CONNECTION_STRING or DATABASE_URL');
-    process.exit(1);
+    for (const [userId, profile] of Object.entries(seedData)) {
+      await profileDb.upsertProfile(userId, profile);
+      console.log('Seeded profile (file fallback):', userId);
+    }
+    return;
   }
   const client = new Client({ connectionString: conn });
   await client.connect();
