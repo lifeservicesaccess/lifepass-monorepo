@@ -1,0 +1,14 @@
+# Foundry build artifacts
+out/
+cache/
+
+# Environment variables (never commit!)
+.env
+
+# Foundry broadcast (contains tx hashes – safe to commit if desired, but excluded by default)
+broadcast/*/31337/
+
+# Dependencies installed by forge install
+lib/forge-std
+lib/openzeppelin-contracts
+lib/openzeppelin-contracts-upgradeable
