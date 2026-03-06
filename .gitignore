@@ -16,3 +16,7 @@ package-lock.json
 dist/
 .env
 /lifepass-monorepo/
+
+# Foundry build artifacts
+contracts/out/
+contracts/cache/

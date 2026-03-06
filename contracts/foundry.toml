@@ -1,0 +1,14 @@
+[profile.default]
+src = "."
+test = "test"
+out = "out"
+cache_path = "cache"
+libs = ["C:/Users/Elfun Gift/Documents/LIFE SERVICES/LifeServices/lifepass-monorepo/services/api/node_modules", "lib"]
+
+remappings = [
+  "@openzeppelin/contracts-upgradeable/=../services/api/node_modules/@openzeppelin/contracts-upgradeable/"
+]
+
+solc_version = "0.8.19"
+optimizer = true
+optimizer_runs = 200

@@ -40,7 +40,9 @@ contract LifePassSBT is Initializable, ERC721Upgradeable, ERC721BurnableUpgradea
     event Updated(uint256 indexed tokenId);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor() initializer {}
+    // This repo deploys the contract directly and then calls initialize(admin).
+    // Keep constructor empty so initialize can be called exactly once post-deploy.
+    constructor() {}
 
     /// @notice Contract initializer.  Must be called exactly once after deployment.
     /// @param admin The initial admin who will receive all roles.
