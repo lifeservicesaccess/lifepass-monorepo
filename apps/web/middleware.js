@@ -10,7 +10,6 @@ export function middleware(request) {
       const now = new Date().toISOString();
       // Narrow logging to webpack hot-update assets for clarity
       if (url.pathname.includes('/_next/static/webpack') || url.pathname.endsWith('.hot-update.json')) {
-        // eslint-disable-next-line no-console
         console.log(`[dev-middleware] HMR request: ${now} ${url.pathname}`);
       }
     } catch (err) {

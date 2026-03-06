@@ -25,9 +25,10 @@ export default function Home() {
       setStatus('Generating proof…');
       const currentYear = new Date().getFullYear();
       const is_over_18 = currentYear - parseInt(birthYear || '0', 10) >= 18 ? 1 : 0;
-      // Submit the proof.  Here we fake the proof payload and pass only the public signal.
+      // Submit the proof. In local/demo mode we send a bytes-like placeholder that
+      // matches the API contract while publicSignals carries the age predicate.
       const proofRes = await axios.post('/proof/submit', {
-        proof: {},
+        proof: '0x1234',
         publicSignals: { is_over_18 }
       });
       if (!proofRes.data.success) {
