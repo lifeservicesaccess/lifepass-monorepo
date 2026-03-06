@@ -68,6 +68,12 @@ function Is-HexPrivateKey {
   return $Value -match '^0x[a-fA-F0-9]{64}$'
 }
 
+function Test-ConfiguredPathExists {
+  param([string]$PathValue)
+  if ([string]::IsNullOrWhiteSpace($PathValue)) { return $false }
+  return Test-Path -Path $PathValue
+}
+
 function Mask-Value {
   param([string]$Value)
   if ([string]::IsNullOrWhiteSpace($Value)) { return '<empty>' }
@@ -92,6 +98,11 @@ function Show-PreflightSummary {
   $sbtAddress = Get-Value -Name 'SBT_CONTRACT_ADDRESS' -ApiLocal $apiLocal -Api $api -WebLocal $webLocal -Web $web
   $ageVerifier = Get-Value -Name 'AGE_VERIFIER_ADDRESS' -ApiLocal $apiLocal -Api $api -WebLocal $webLocal -Web $web
   $wcProjectId = Get-Value -Name 'NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID' -ApiLocal $apiLocal -Api $api -WebLocal $webLocal -Web $web
+  $useSnark = Get-Value -Name 'USE_SNARKJS' -ApiLocal $apiLocal -Api $api -WebLocal $webLocal -Web $web
+  $snarkWasmPath = Get-Value -Name 'SNARK_WASM_PATH' -ApiLocal $apiLocal -Api $api -WebLocal $webLocal -Web $web
+  $snarkZkeyPath = Get-Value -Name 'SNARK_ZKEY_PATH' -ApiLocal $apiLocal -Api $api -WebLocal $webLocal -Web $web
+  $snarkVkeyPath = Get-Value -Name 'SNARK_VKEY_PATH' -ApiLocal $apiLocal -Api $api -WebLocal $webLocal -Web $web
+  $snarkEnabled = $useSnark -eq '1'
 
   $rows = @(
     [pscustomobject]@{ Key = 'RPC_URL'; Present = (-not [string]::IsNullOrWhiteSpace($rpcUrl)); Format = 'URL-ish'; Valid = (-not [string]::IsNullOrWhiteSpace($rpcUrl)); Sample = (Mask-Value $rpcUrl) }
@@ -99,7 +110,14 @@ function Show-PreflightSummary {
     [pscustomobject]@{ Key = 'SBT_CONTRACT_ADDRESS'; Present = (-not [string]::IsNullOrWhiteSpace($sbtAddress)); Format = '0x + 40 hex'; Valid = (Is-HexAddress $sbtAddress); Sample = (Mask-Value $sbtAddress) }
     [pscustomobject]@{ Key = 'AGE_VERIFIER_ADDRESS'; Present = (-not [string]::IsNullOrWhiteSpace($ageVerifier)); Format = 'optional 0x + 40 hex'; Valid = ([string]::IsNullOrWhiteSpace($ageVerifier) -or (Is-HexAddress $ageVerifier)); Sample = (Mask-Value $ageVerifier) }
     [pscustomobject]@{ Key = 'NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID'; Present = (-not [string]::IsNullOrWhiteSpace($wcProjectId)); Format = 'non-empty'; Valid = (-not [string]::IsNullOrWhiteSpace($wcProjectId)); Sample = (Mask-Value $wcProjectId) }
+    [pscustomobject]@{ Key = 'USE_SNARKJS'; Present = $true; Format = '0 or 1'; Valid = ($useSnark -in @('0','1','')); Sample = (Mask-Value $useSnark) }
   )
+
+  if ($snarkEnabled) {
+    $rows += [pscustomobject]@{ Key = 'SNARK_WASM_PATH'; Present = (-not [string]::IsNullOrWhiteSpace($snarkWasmPath)); Format = 'existing file path'; Valid = (Test-ConfiguredPathExists $snarkWasmPath); Sample = (Mask-Value $snarkWasmPath) }
+    $rows += [pscustomobject]@{ Key = 'SNARK_ZKEY_PATH'; Present = (-not [string]::IsNullOrWhiteSpace($snarkZkeyPath)); Format = 'existing file path'; Valid = (Test-ConfiguredPathExists $snarkZkeyPath); Sample = (Mask-Value $snarkZkeyPath) }
+    $rows += [pscustomobject]@{ Key = 'SNARK_VKEY_PATH'; Present = (-not [string]::IsNullOrWhiteSpace($snarkVkeyPath)); Format = 'existing file path'; Valid = (Test-ConfiguredPathExists $snarkVkeyPath); Sample = (Mask-Value $snarkVkeyPath) }
+  }
 
   Write-Host ''
   Write-Host 'Preflight Config Summary (masked)' -ForegroundColor Cyan
@@ -110,6 +128,12 @@ function Show-PreflightSummary {
     $requiredFailures = @($rows | Where-Object {
       ($_.Key -in @('RPC_URL', 'PRIVATE_KEY', 'SBT_CONTRACT_ADDRESS', 'NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID')) -and (-not $_.Valid)
     })
+
+    if ($snarkEnabled) {
+      $requiredFailures += @($rows | Where-Object {
+        ($_.Key -in @('SNARK_WASM_PATH', 'SNARK_ZKEY_PATH', 'SNARK_VKEY_PATH')) -and (-not $_.Valid)
+      })
+    }
   }
 
   return [pscustomobject]@{
@@ -118,6 +142,7 @@ function Show-PreflightSummary {
     Values = @{
       RPC_URL = $rpcUrl
       SBT_CONTRACT_ADDRESS = $sbtAddress
+      USE_SNARKJS = $useSnark
     }
   }
 }
@@ -195,12 +220,21 @@ function Invoke-SmokeTests {
   param(
     [string]$ApiDir,
     [string]$Mode,
-    [bool]$AllowSimulatedMint
+    [bool]$AllowSimulatedMint,
+    [bool]$UseSnark
   )
 
   Write-Host "Running smoke-test.js..." -ForegroundColor Cyan
   Push-Location $ApiDir
   try {
+    if ($UseSnark) {
+      Write-Host "Running validate:snark..." -ForegroundColor Cyan
+      npm run validate:snark
+      if ($LASTEXITCODE -ne 0) {
+        throw 'npm run validate:snark failed.'
+      }
+    }
+
     node scripts/smoke-test.js
     if ($LASTEXITCODE -ne 0) {
       throw 'scripts/smoke-test.js failed.'
@@ -296,7 +330,7 @@ try {
     throw "API did not become ready on port 3003. STDERR:`n$stderr"
   }
 
-  Invoke-SmokeTests -ApiDir $apiDir -Mode $Mode -AllowSimulatedMint:$AllowSimulatedMint
+  Invoke-SmokeTests -ApiDir $apiDir -Mode $Mode -AllowSimulatedMint:$AllowSimulatedMint -UseSnark:($preflight.Values.USE_SNARKJS -eq '1')
 
   Write-Host ''
   Write-Host 'Smoke run complete: PASS' -ForegroundColor Green

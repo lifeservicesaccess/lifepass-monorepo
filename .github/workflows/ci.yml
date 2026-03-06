@@ -9,26 +9,65 @@ on:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+    env:
+      USE_SNARKJS: ${{ vars.USE_SNARKJS || '0' }}
+      SNARK_WASM_PATH: ${{ vars.SNARK_WASM_PATH || '' }}
+      SNARK_ZKEY_PATH: ${{ vars.SNARK_ZKEY_PATH || '' }}
+      SNARK_VKEY_PATH: ${{ vars.SNARK_VKEY_PATH || '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 18
+      - name: Install API dependencies
+        working-directory: services/api
+        run: npm ci
       - name: Install dependencies
         run: |
-          cd services/api && npm install
-          cd ../../apps/web && npm install
+          cd apps/web && npm install
       - name: Lint API and frontend
         run: |
           cd services/api && npx eslint . --max-warnings=0
           cd ../../apps/web && npx eslint . --max-warnings=0
       - name: Run API tests
-        run: |
-          cd services/api && npm test
+        working-directory: services/api
+        run: npm test
+      - name: Validate SNARK artifacts (optional)
+        if: env.USE_SNARKJS == '1'
+        working-directory: services/api
+        run: npm run validate:snark
+      - name: Setup Foundry
+        uses: foundry-rs/foundry-toolchain@v1
       - name: Compile and test contracts
         run: |
+          cd contracts
           forge build
           forge test
       - name: Build web app
         run: |
           cd apps/web && npm run build
+
+  zk-mode-smoke:
+    if: vars.USE_SNARKJS == '1'
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    env:
+      USE_SNARKJS: ${{ vars.USE_SNARKJS }}
+      SNARK_WASM_PATH: ${{ vars.SNARK_WASM_PATH || '' }}
+      SNARK_ZKEY_PATH: ${{ vars.SNARK_ZKEY_PATH || '' }}
+      SNARK_VKEY_PATH: ${{ vars.SNARK_VKEY_PATH || '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+      - name: Install API dependencies
+        working-directory: services/api
+        run: npm ci
+      - name: Validate SNARK artifacts
+        working-directory: services/api
+        run: npm run validate:snark
+      - name: Run SNARK-enabled simulated smoke
+        shell: pwsh
+        run: |
+          ./scripts/testnet-smoke.ps1 -Mode simulated -SkipApply

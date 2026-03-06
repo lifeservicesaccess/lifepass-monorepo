@@ -77,6 +77,11 @@ function Add-Check {
   }
 }
 
+function Has-FilePathValue {
+  param([string]$Value)
+  return -not [string]::IsNullOrWhiteSpace($Value)
+}
+
 function Write-ApiEnvLocal {
   param(
     [string]$Path,
@@ -89,7 +94,10 @@ function Write-ApiEnvLocal {
     "# Mode: $Mode",
     'PORT=3003',
     'API_KEY=',
-    "USE_SNARKJS=$($Values['USE_SNARKJS'])"
+    "USE_SNARKJS=$($Values['USE_SNARKJS'])",
+    "SNARK_WASM_PATH=$($Values['SNARK_WASM_PATH'])",
+    "SNARK_ZKEY_PATH=$($Values['SNARK_ZKEY_PATH'])",
+    "SNARK_VKEY_PATH=$($Values['SNARK_VKEY_PATH'])"
   )
 
   if ($Mode -eq 'testnet') {
@@ -143,6 +151,9 @@ $values = @{
   AGE_VERIFIER_ADDRESS = Get-Value -Name 'AGE_VERIFIER_ADDRESS' -ApiLocal $apiLocal -Api $api -WebLocal $webLocal -Web $web
   NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID = Get-Value -Name 'NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID' -ApiLocal $apiLocal -Api $api -WebLocal $webLocal -Web $web
   USE_SNARKJS = Get-Value -Name 'USE_SNARKJS' -ApiLocal $apiLocal -Api $api -WebLocal $webLocal -Web $web
+  SNARK_WASM_PATH = Get-Value -Name 'SNARK_WASM_PATH' -ApiLocal $apiLocal -Api $api -WebLocal $webLocal -Web $web
+  SNARK_ZKEY_PATH = Get-Value -Name 'SNARK_ZKEY_PATH' -ApiLocal $apiLocal -Api $api -WebLocal $webLocal -Web $web
+  SNARK_VKEY_PATH = Get-Value -Name 'SNARK_VKEY_PATH' -ApiLocal $apiLocal -Api $api -WebLocal $webLocal -Web $web
 }
 
 if (-not $values['USE_SNARKJS']) {
@@ -168,6 +179,13 @@ if ($Mode -eq 'simulated') {
   } else {
     $checks += Add-Check -Name 'AGE_VERIFIER_ADDRESS optional' -Ok $true -Detail 'Not set: /proof/verify-onchain will use local fallback verification.'
   }
+}
+
+$useSnark = $values['USE_SNARKJS'] -eq '1'
+if ($useSnark) {
+  $checks += Add-Check -Name 'SNARK_WASM_PATH set when USE_SNARKJS=1' -Ok (Has-FilePathValue $values['SNARK_WASM_PATH']) -Detail 'Required for groth16 witness/proof generation.'
+  $checks += Add-Check -Name 'SNARK_ZKEY_PATH set when USE_SNARKJS=1' -Ok (Has-FilePathValue $values['SNARK_ZKEY_PATH']) -Detail 'Required proving key for groth16 fullProve.'
+  $checks += Add-Check -Name 'SNARK_VKEY_PATH set when USE_SNARKJS=1' -Ok (Has-FilePathValue $values['SNARK_VKEY_PATH']) -Detail 'Required verification key for groth16 verify.'
 }
 
 Write-Host ""

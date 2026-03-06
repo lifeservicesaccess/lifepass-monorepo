@@ -35,3 +35,9 @@ The contract uses OpenZeppelin’s UUPSUpgradeable mechanism.  To upgrade:
 ## Deployment
 
 Deploy the `LifePassSBT` contract using OpenZeppelin’s proxy tools or Foundry’s `forge create --deploy-with-proxy`.  Pass your admin address to the `initialize` function after deployment.  Ensure that the proxy admin has sufficient privileges to manage roles and upgrades.
+
+## Foundry Setup
+
+- Foundry config is located at `contracts/foundry.toml`.
+- CI runs `forge build` and `forge test` from the `contracts/` directory.
+- OpenZeppelin upgradeable imports are remapped to `services/api/node_modules/@openzeppelin/contracts-upgradeable`.

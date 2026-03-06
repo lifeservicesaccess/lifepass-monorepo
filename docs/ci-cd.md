@@ -67,3 +67,16 @@ jobs:
 ```
 
 Adjust the workflow as needed for deployment steps and additional services.  Store secrets (e.g., RPC URLs, private keys) in GitHub repository secrets and reference them in the workflow.
+
+## Optional SNARK CI Stage
+
+The repository CI workflow also supports an optional SNARK-enabled smoke stage (`zk-mode-smoke`).
+It runs only when repository variable `USE_SNARKJS` is set to `1` and validates artifact wiring with:
+
+- `SNARK_WASM_PATH`
+- `SNARK_ZKEY_PATH`
+- `SNARK_VKEY_PATH`
+
+These variables should point to artifact files available in the checked-out workspace for the CI runner.
+
+Contract checks in CI use `foundry-rs/foundry-toolchain@v1` to install Foundry before running `forge build` and `forge test`.
