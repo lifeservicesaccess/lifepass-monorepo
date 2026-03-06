@@ -9,6 +9,7 @@ class MockProfileDB {
 class MockZKProofTool {
   constructor() { this.calledWith = null; }
   generateOver18Proof(userId) { this.calledWith = userId; return { proof: 'FAKE_PROOF', publicSignals: { is_over_18: 1 } }; }
+  verifyProof() { return true; }
 }
 
 class MockWalletTool {

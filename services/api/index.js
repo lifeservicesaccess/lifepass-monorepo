@@ -82,13 +82,22 @@ app.post('/proof/verify-onchain',
  */
 app.post('/sbt/mint', async (req, res) => {
   try {
-    if (!sbtContract) {
-      return res.status(500).json({ success: false, error: 'SBT contract not configured' });
-    }
     const { to, tokenId, metadata } = req.body;
     if (!to || !tokenId || !metadata) {
       return res.status(400).json({ success: false, error: 'Missing required fields' });
     }
+
+    // Graceful fallback for local/dev environments without blockchain config.
+    if (!sbtContract) {
+      const simulatedTxHash = `0xSIMULATED_SBT_MINT_${Date.now()}`;
+      return res.json({
+        success: true,
+        txHash: simulatedTxHash,
+        simulated: true,
+        message: 'SBT contract not configured; mint simulated'
+      });
+    }
+
     const tx = await sbtContract.mint(to, tokenId, metadata);
     await tx.wait();
     res.json({ success: true, txHash: tx.hash });
@@ -104,7 +113,6 @@ const profileDb = require('./tools/profileDb');
 const zkProof = require('./tools/zkProof');
 const walletTool = require('./tools/wallet');
 
-const onchainVerifier = require('./tools/onchainVerifier');
 const agent = new PurposeGuide(profileDb, zkProof, walletTool);
 
 // Simple API key middleware (set API_KEY env var to enable)

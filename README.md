@@ -14,3 +14,30 @@ This repository contains the skeleton for building the LifePass identity system 
 - **docs** — Documentation (MkDocs or Docusaurus).
 
 The repository is ready for augmentation by specialised GPT agents.
+
+## Environment Quick Start
+
+Use the checklist script to switch between simulated and testnet modes:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\testnet-readiness.ps1 -Mode simulated -Apply
+```
+
+For testnet mode, set required env values first, then run:
+
+```powershell
+Copy-Item .\services\api\.env.testnet.example .\services\api\.env.local -Force
+Copy-Item .\apps\web\.env.testnet.example .\apps\web\.env.local -Force
+```
+
+Then edit both `.env.local` files and run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\testnet-readiness.ps1 -Mode testnet -Apply
+```
+
+Then run end-to-end API smoke checks (auto-starts API and stops it when done):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\testnet-smoke.ps1 -Mode testnet
+```

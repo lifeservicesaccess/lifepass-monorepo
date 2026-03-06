@@ -93,10 +93,3 @@ export default function Home() {
     </main>
   );
 }
-
-// Dummy edit to trigger HMR during diagnostics: no functional change. TS: 1701
-// HMR touch: 2026-03-05T22:06:32.2241970+01:00
-\n// HMR touch after middleware: 2026-03-05T22:07:39.9389160+01:00
-\n// HMR touch after middleware update: 2026-03-05T22:08:09.3835039+01:00
-
-// HMR probe: 2026-03-05T22:09:37.4711415+01:00

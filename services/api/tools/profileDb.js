@@ -55,6 +55,7 @@ async function upsertProfile(userId, profile) {
     }
   }
 
+  await fs.mkdir(DATA_DIR, { recursive: true });
   const profiles = await _readProfilesFile();
   profiles[userId] = profile;
   await fs.writeFile(PROFILES_FILE, JSON.stringify(profiles, null, 2), 'utf8');

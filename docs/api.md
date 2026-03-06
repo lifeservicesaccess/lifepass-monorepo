@@ -4,7 +4,7 @@ The LifePass backend exposes a REST API for interacting with the smart contracts
 
 ## Base URL
 
-By default, the API server runs on `http://localhost:3000`.  When deploying to production, configure the `PORT`, `RPC_URL`, `PRIVATE_KEY` and contract addresses via environment variables.
+By default, the API server runs on `http://localhost:3003`.  When deploying to production, configure the `PORT`, `RPC_URL`, `PRIVATE_KEY` and contract addresses via environment variables.
 
 ## Endpoints
 
@@ -38,6 +38,8 @@ If verification fails, the server returns `success: false` with an `error` messa
 
 Mint a new LifePass soulbound token.  Requires that a proof has been previously submitted (enforced off‑chain in the current demo).
 
+When blockchain configuration is missing (`RPC_URL`, `PRIVATE_KEY`, `SBT_CONTRACT_ADDRESS`), the API gracefully simulates minting in local/dev mode and returns `success: true` with `simulated: true`.
+
 **Request Body**
 
 ```
@@ -59,6 +61,17 @@ Mint a new LifePass soulbound token.  Requires that a proof has been previously 
 {
   "success": true,
   "txHash": "0x…"
+}
+```
+
+Example simulated response (dev fallback):
+
+```
+{
+  "success": true,
+  "txHash": "0xSIMULATED_SBT_MINT_...",
+  "simulated": true,
+  "message": "SBT contract not configured; mint simulated"
 }
 ```
 

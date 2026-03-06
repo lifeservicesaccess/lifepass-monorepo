@@ -3,6 +3,28 @@ const path = require('path');
 const solc = require('solc');
 const { ethers } = require('ethers');
 
+function makeImportResolver(baseFilePath) {
+  return function findImports(importPath) {
+    const candidates = [];
+
+    if (importPath.startsWith('@')) {
+      candidates.push(path.join(__dirname, '..', 'node_modules', importPath));
+      candidates.push(path.join(__dirname, '..', '..', '..', 'node_modules', importPath));
+    } else {
+      candidates.push(path.join(path.dirname(baseFilePath), importPath));
+      candidates.push(path.join(__dirname, '..', '..', '..', 'contracts', importPath));
+    }
+
+    for (const candidate of candidates) {
+      if (fs.existsSync(candidate)) {
+        return { contents: fs.readFileSync(candidate, 'utf8') };
+      }
+    }
+
+    return { error: `File not found: ${importPath}` };
+  };
+}
+
 async function compileSol(filePath) {
   const source = fs.readFileSync(filePath, 'utf8');
   const input = {
@@ -12,7 +34,7 @@ async function compileSol(filePath) {
     },
     settings: { outputSelection: { '*': { '*': ['abi', 'evm.bytecode'] } } }
   };
-  const output = JSON.parse(solc.compile(JSON.stringify(input)));
+  const output = JSON.parse(solc.compile(JSON.stringify(input), { import: makeImportResolver(filePath) }));
   if (output.errors) {
     const errs = output.errors.filter(e => e.severity === 'error');
     if (errs.length) throw new Error(errs.map(e => e.formattedMessage).join('\n'));
@@ -31,15 +53,22 @@ async function deploy() {
   const provider = new ethers.JsonRpcProvider(RPC_URL);
   const wallet = new ethers.Wallet(PRIVATE_KEY, provider);
 
-  const contractPath = path.join(__dirname, '..', '..', 'contracts', 'LifePassSBT.sol');
+  const contractPath = path.join(__dirname, '..', '..', '..', 'contracts', 'LifePassSBT.sol');
   const { abi, bytecode, contractName } = await compileSol(contractPath);
   console.log('Compiled', contractName);
   const factory = new ethers.ContractFactory(abi, bytecode, wallet);
   const contract = await factory.deploy();
-  console.log('Deploy tx:', contract.deployTransaction.hash);
+  const deployTx = contract.deploymentTransaction();
+  const deployTxHash = deployTx ? deployTx.hash : null;
+  console.log('Deploy tx:', deployTxHash || '<unknown>');
   await contract.waitForDeployment();
+
+  // LifePassSBT is upgradeable and must be initialized after deploy.
+  const initTx = await contract.initialize(wallet.address);
+  await initTx.wait();
+
   console.log('Deployed at', contract.target);
-  return { name: contractName, address: contract.target, txHash: contract.deployTransaction.hash };
+  return { name: contractName, address: contract.target, txHash: deployTxHash };
 }
 
 if (require.main === module) {

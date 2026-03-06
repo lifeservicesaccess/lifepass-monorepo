@@ -39,7 +39,7 @@ contract LifePassSBT is Initializable, ERC721Upgradeable, ERC721BurnableUpgradea
     /// @notice Emitted when metadata for a token is updated.
     event Updated(uint256 indexed tokenId);
 
-    /// @custom:oz‑upgrades‑unsafe‑allow constructor
+    /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() initializer {}
 
     /// @notice Contract initializer.  Must be called exactly once after deployment.
