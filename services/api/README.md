@@ -43,6 +43,42 @@ $env:DEPLOY_GAS_STRATEGY='provider'; npm run deploy:sbt
 - `PG_CONNECTION_STRING` or `DATABASE_URL` for Postgres
 - `RPC_URL`, `PRIVATE_KEY`, `SBT_CONTRACT_ADDRESS`, `AGE_VERIFIER_ADDRESS` for contract ops
 - Optional real ZK mode: set `USE_SNARKJS=1` and provide `SNARK_WASM_PATH`, `SNARK_ZKEY_PATH`, `SNARK_VKEY_PATH`
+- `CORS_ALLOWED_ORIGINS` (comma-separated browser origin allowlist)
+- `CORS_ALLOW_CREDENTIALS=1` only if cross-site credentials are required
+- `STARTUP_STRICT=1` to fail fast on startup check failures
+
+### Health & Startup Checklist
+- `GET /health` returns startup/env readiness checks.
+- On process start, checklist status is logged.
+- With `STARTUP_STRICT=1`, startup exits if any critical check fails.
+
+## Deploy API On Render / Railway
+
+Set service root to `services/api` and use:
+
+- Build command: `npm install`
+- Start command: `npm start`
+
+Recommended environment variables:
+
+- `NODE_ENV=production`
+- `PORT` (platform may inject this automatically)
+- `API_KEY` (recommended)
+- `STARTUP_STRICT=1`
+- `CORS_ALLOWED_ORIGINS=https://<your-vercel-domain>`
+- `CORS_ALLOW_CREDENTIALS=0`
+- `RPC_URL`
+- `PRIVATE_KEY`
+- `SBT_CONTRACT_ADDRESS`
+- `AGE_VERIFIER_ADDRESS` (optional)
+
+Post-deploy checks:
+
+```bash
+curl https://<api-domain>/health
+```
+
+Expected: `success: true`, `hasCriticalFailure: false`.
 
 Validate SNARK artifacts/config explicitly:
 

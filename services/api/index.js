@@ -21,6 +21,12 @@ const RPC_URL = process.env.RPC_URL || "https://rpc-mumbai.maticvigil.com"; // d
 const PRIVATE_KEY = process.env.PRIVATE_KEY;
 const SBT_CONTRACT_ADDRESS = process.env.SBT_CONTRACT_ADDRESS;
 const AGE_VERIFIER_ADDRESS = process.env.AGE_VERIFIER_ADDRESS;
+const CORS_ALLOWED_ORIGINS = (process.env.CORS_ALLOWED_ORIGINS || '')
+  .split(',')
+  .map((v) => v.trim())
+  .filter(Boolean);
+const CORS_ALLOW_ALL = CORS_ALLOWED_ORIGINS.includes('*');
+const CORS_ALLOW_CREDENTIALS = process.env.CORS_ALLOW_CREDENTIALS === '1';
 
 // ABI for the LifePassSBT contract.  In practice, generate this with `solc` or Foundry and import
 // the JSON.  Here we define a minimal ABI for minting and updating.
@@ -35,6 +41,118 @@ const wallet = PRIVATE_KEY ? new ethers.Wallet(PRIVATE_KEY, provider) : null;
 const sbtContract = SBT_CONTRACT_ADDRESS && wallet
   ? new ethers.Contract(SBT_CONTRACT_ADDRESS, LIFE_PASS_ABI, wallet)
   : null;
+
+function isValidPrivateKey(value) {
+  return typeof value === 'string' && /^0x[a-fA-F0-9]{64}$/.test(value);
+}
+
+function startupChecklist() {
+  const isProd = process.env.NODE_ENV === 'production';
+  const hasRpc = Boolean(RPC_URL);
+  const hasPk = Boolean(PRIVATE_KEY);
+  const hasSbtAddress = Boolean(SBT_CONTRACT_ADDRESS);
+  const blockchainReady = hasRpc && hasPk && hasSbtAddress;
+  const hasCorsAllowlist = CORS_ALLOW_ALL || CORS_ALLOWED_ORIGINS.length > 0;
+
+  const items = [
+    {
+      check: 'NODE_ENV',
+      status: process.env.NODE_ENV ? 'pass' : 'warn',
+      detail: process.env.NODE_ENV || 'not set'
+    },
+    {
+      check: 'CORS_ALLOWED_ORIGINS configured',
+      status: hasCorsAllowlist ? 'pass' : (isProd ? 'fail' : 'warn'),
+      detail: hasCorsAllowlist
+        ? (CORS_ALLOW_ALL ? 'allow all (*)' : `${CORS_ALLOWED_ORIGINS.length} origin(s) configured`)
+        : 'not set; browser cross-origin requests will be blocked'
+    },
+    {
+      check: 'API_KEY set',
+      status: process.env.API_KEY ? 'pass' : (isProd ? 'warn' : 'warn'),
+      detail: process.env.API_KEY ? 'protected endpoints require x-api-key' : 'not set; protected endpoints are open'
+    },
+    {
+      check: 'PRIVATE_KEY format',
+      status: hasPk ? (isValidPrivateKey(PRIVATE_KEY) ? 'pass' : 'fail') : 'warn',
+      detail: hasPk ? (isValidPrivateKey(PRIVATE_KEY) ? 'valid hex key format' : 'expected 0x-prefixed 64-byte hex key') : 'not set'
+    },
+    {
+      check: 'SBT_CONTRACT_ADDRESS format',
+      status: hasSbtAddress ? (ethers.isAddress(SBT_CONTRACT_ADDRESS) ? 'pass' : 'fail') : 'warn',
+      detail: hasSbtAddress ? (ethers.isAddress(SBT_CONTRACT_ADDRESS) ? 'valid address format' : 'invalid address format') : 'not set'
+    },
+    {
+      check: 'On-chain mint mode',
+      status: blockchainReady ? 'pass' : 'warn',
+      detail: blockchainReady ? 'RPC_URL + PRIVATE_KEY + SBT_CONTRACT_ADDRESS set' : 'incomplete config; /sbt/mint will simulate'
+    },
+    {
+      check: 'AGE_VERIFIER_ADDRESS format',
+      status: AGE_VERIFIER_ADDRESS ? (ethers.isAddress(AGE_VERIFIER_ADDRESS) ? 'pass' : 'fail') : 'warn',
+      detail: AGE_VERIFIER_ADDRESS ? (ethers.isAddress(AGE_VERIFIER_ADDRESS) ? 'valid address format' : 'invalid address format') : 'optional; not set'
+    }
+  ];
+
+  const hasFail = items.some((item) => item.status === 'fail');
+  return { items, hasFail, isProd };
+}
+
+function printStartupChecklist(report) {
+  console.log('Startup Checklist');
+  for (const item of report.items) {
+    console.log(`[${item.status.toUpperCase()}] ${item.check}: ${item.detail}`);
+  }
+}
+
+// Production CORS allowlist: set CORS_ALLOWED_ORIGINS="https://app.example,https://preview.example"
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  const originAllowed = CORS_ALLOW_ALL || (origin && CORS_ALLOWED_ORIGINS.includes(origin));
+
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-api-key');
+
+  if (origin && originAllowed) {
+    if (CORS_ALLOW_ALL) {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+    } else {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Vary', 'Origin');
+      if (CORS_ALLOW_CREDENTIALS) {
+        res.setHeader('Access-Control-Allow-Credentials', 'true');
+      }
+    }
+  }
+
+  if (req.method === 'OPTIONS') {
+    if (origin && CORS_ALLOWED_ORIGINS.length > 0 && !originAllowed) {
+      return res.sendStatus(403);
+    }
+    return res.sendStatus(204);
+  }
+
+  if (origin && CORS_ALLOWED_ORIGINS.length > 0 && !originAllowed) {
+    return res.status(403).json({ success: false, error: 'Origin not allowed by CORS policy' });
+  }
+
+  next();
+});
+
+app.get('/health', (_req, res) => {
+  const report = startupChecklist();
+  const hasCriticalFailure = report.items.some(
+    (item) => item.status === 'fail' && item.check !== 'AGE_VERIFIER_ADDRESS format'
+  );
+
+  return res.json({
+    success: true,
+    service: 'lifepass-api',
+    mode: report.isProd ? 'production' : 'non-production',
+    hasCriticalFailure,
+    checks: report.items
+  });
+});
 
 /**
  * POST /proof/submit
@@ -161,6 +279,13 @@ app.post('/flow/mint',
 );
 
 const PORT = process.env.PORT || 3003;
+const startupReport = startupChecklist();
+printStartupChecklist(startupReport);
+if (process.env.STARTUP_STRICT === '1' && startupReport.hasFail) {
+  console.error('STARTUP_STRICT=1 and one or more startup checks failed. Exiting.');
+  process.exit(1);
+}
+
 app.listen(PORT, () => {
   console.log(`API server listening on port ${PORT}`);
 });
