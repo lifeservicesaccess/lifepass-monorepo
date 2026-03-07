@@ -49,3 +49,16 @@ powershell -ExecutionPolicy Bypass -File .\scripts\request-faucet.ps1
 ```
 
 Detailed funding walkthrough: `docs/FUNDING.md`.
+
+## One-Click API Provisioning
+
+This repo now includes platform config for deploying `services/api` directly from the monorepo root:
+
+- Render blueprint: `render.yaml`
+- Railway service config: `railway.json`
+
+After provisioning, set required secrets (`API_KEY`, `CORS_ALLOWED_ORIGINS`, `RPC_URL`, `PRIVATE_KEY`, `SBT_CONTRACT_ADDRESS`) and verify startup diagnostics:
+
+```bash
+curl https://<api-domain>/health
+```
