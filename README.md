@@ -41,3 +41,11 @@ Then run end-to-end API smoke checks (auto-starts API and stops it when done):
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\testnet-smoke.ps1 -Mode testnet
 ```
+
+If deployment fails with `INSUFFICIENT_FUNDS`, use the Amoy funding helper:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\request-faucet.ps1
+```
+
+Detailed funding walkthrough: `docs/FUNDING.md`.

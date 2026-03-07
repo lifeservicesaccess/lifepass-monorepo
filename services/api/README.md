@@ -6,6 +6,30 @@
 
 ## Contract Deployment
 - SBT: `node scripts/deploy_contract.js` (deploys LifePassSBT)
+- Shortcut: `npm run deploy:sbt`
+- Dry-run shortcut: `npm run deploy:sbt:dry`
+
+Deployment gas strategy can be tuned with env vars (defaults shown):
+- `DEPLOY_GAS_STRATEGY=auto` (`auto` or `provider`)
+- `DEPLOY_GAS_PRICE_GWEI=` (optional manual override; takes precedence)
+- `DEPLOY_MIN_GAS_PRICE_GWEI=` (optional floor)
+- `DEPLOY_MAX_GAS_PRICE_GWEI=` (optional cap)
+- `DEPLOY_INIT_GAS_RESERVE=250000` (gas units reserved during deploy preflight)
+- `DEPLOY_BALANCE_BUFFER_POL=0.005` (POL kept as safety buffer)
+- `DEPLOY_DRY_RUN=1` (preflight only, no on-chain tx)
+
+Examples:
+
+```powershell
+# One-command auto mode (default)
+npm run deploy:sbt
+
+# Dry-run preflight only
+npm run deploy:sbt:dry
+
+# Provider-only strategy (no affordability cap)
+$env:DEPLOY_GAS_STRATEGY='provider'; npm run deploy:sbt
+```
 
 ## API Endpoints
 - `POST /flow/mint` — Full flow: fetch profile, ZK proof, on-chain verify, mint SBT
@@ -40,6 +64,14 @@ Copy-Item .\apps\web\.env.testnet.example .\apps\web\.env.local -Force
 
 # 2) Edit both .env.local files with real values
 ```
+
+If deployer balance is too low on Amoy, run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\request-faucet.ps1
+```
+
+See `docs/FUNDING.md` for full instructions.
 
 ```powershell
 # Validate simulated mode readiness
