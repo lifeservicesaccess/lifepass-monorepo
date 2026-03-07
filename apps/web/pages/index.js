@@ -5,6 +5,20 @@ import axios from 'axios';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useAccount } from 'wagmi';
 
+function normalizeBaseUrl(baseUrl) {
+  if (!baseUrl) return '';
+  return baseUrl.replace(/\/$/, '');
+}
+
+function apiPath(pathname) {
+  const configured = normalizeBaseUrl(process.env.NEXT_PUBLIC_API_BASE_URL);
+  if (!configured) {
+    // In local dev, relative paths rely on Next.js rewrites in next.config.js.
+    return pathname;
+  }
+  return `${configured}${pathname}`;
+}
+
 /**
  * Home page for the LifePass web portal.  This simple interface allows a user to
  * input their birth year and wallet address, submit a zero‑knowledge proof of
@@ -27,7 +41,7 @@ export default function Home() {
       const is_over_18 = currentYear - parseInt(birthYear || '0', 10) >= 18 ? 1 : 0;
       // Submit the proof. In local/demo mode we send a bytes-like placeholder that
       // matches the API contract while publicSignals carries the age predicate.
-      const proofRes = await axios.post('/proof/submit', {
+      const proofRes = await axios.post(apiPath('/proof/submit'), {
         proof: '0x1234',
         publicSignals: { is_over_18 }
       });
@@ -43,7 +57,7 @@ export default function Home() {
         verificationLevel: 'Silver',
         didUri: ''
       };
-      const mintRes = await axios.post('/sbt/mint', {
+      const mintRes = await axios.post(apiPath('/sbt/mint'), {
         // Use the connected wallet address for minting.  The backend will
         // submit the transaction on behalf of the user.  Ensure the user
         // has connected a wallet before attempting to mint.

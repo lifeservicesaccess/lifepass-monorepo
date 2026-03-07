@@ -23,7 +23,24 @@ The web client is located under `apps/web`.  It uses Next.js and React to provid
 
 4. Visit `http://localhost:3000` in your browser.
 
-The web app expects the backend API to be reachable at the same origin.  If the API is running on a different port, configure a proxy or update the axios base URL in `pages/index.js`.
+For local development, the web app proxies `/proof`, `/sbt`, and `/flow` to `LOCAL_API_BASE_URL` (default `http://localhost:3003`) via Next.js rewrites.
+
+For deployed environments (for example Vercel), set:
+
+- `NEXT_PUBLIC_API_BASE_URL=https://<your-api-domain>`
+
+and ensure your API service allows CORS from the web app domain.
+
+### Recommended Production Deployment (Vercel)
+
+1. Create a Vercel project with root directory `apps/web`.
+2. Add environment variables in Vercel Project Settings:
+  - `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID`
+  - `NEXT_PUBLIC_API_BASE_URL` (public HTTPS URL of your deployed API)
+3. Deploy the API service separately (Render/Railway/Fly/VM).
+4. Trigger a redeploy of the Vercel app after env vars are set.
+
+This split deployment is required because local rewrites target `localhost` and are development-only.
 
 ### Extending the Interface
 
