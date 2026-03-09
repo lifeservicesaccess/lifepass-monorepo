@@ -1,5 +1,8 @@
 # LifePass & ZIONSTACK Multi‑GPT Monorepo
 
+
+Welcome! I’m the creator of LifePass & ZIONSTACK – building secure, privacy‑preserving digital identity solutions using soulbound tokens, zero‑knowledge proofs, and AI‑powered multi‑agent orchestration. Our mission is to empower individuals to control their data while honouring God through excellence in technology.
+
 This repository contains the skeleton for building the LifePass identity system as described in the blueprint.  It is organised into separate packages for the web app, mobile app, backend services, smart contracts, zero‑knowledge circuits, and agent orchestration code.  Each component is designed to be developed by specialist GPTs under an orchestrator.
 
 ## Structure
