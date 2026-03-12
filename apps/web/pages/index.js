@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import axios from 'axios';
+import Link from 'next/link';
 
 // Import RainbowKit and wagmi hooks for wallet connection
 import { ConnectButton } from '@rainbow-me/rainbowkit';
@@ -79,6 +80,11 @@ export default function Home() {
   return (
     <main className="max-w-xl mx-auto mt-8 p-4">
       <h1 className="text-2xl font-semibold mb-2">LifePass SBT Minting</h1>
+      <p className="text-sm mb-2">
+        <Link className="underline" href="/signup">Onboarding</Link>
+        {' | '}
+        <Link className="underline" href="/dashboard">Dashboard</Link>
+      </p>
       <p className="text-sm text-slate-700 mb-4">Enter your birth year and connect your wallet to mint a LifePass soulbound token.</p>
       <div className="mb-4">
         <label className="flex items-center gap-2">
