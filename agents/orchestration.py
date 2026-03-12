@@ -8,7 +8,11 @@ from typing import Dict, List
 
 # Agent definitions.  Each agent has a name and a list of tools it can invoke.
 AGENTS: List[Dict[str, List[str]]] = [
+    {"name": "MetaOrchestrator", "tools": ["TaskRouter", "PolicyGuard"]},
     {"name": "PurposeGuide", "tools": ["ProfileDB", "ZKProof", "Wallet"]},
+    {"name": "ChatGuide", "tools": ["ProfileDB", "TrustScore", "VectorSearch"]},
+    {"name": "AgriGPT", "tools": ["PortalAgri", "ServiceRequests", "VectorSearch"]},
+    {"name": "HealthGPT", "tools": ["PortalHealth", "Eligibility", "VectorSearch"]},
     {"name": "Verifier", "tools": ["DocCheck", "FaceMatch", "AttestationRegistry"]},
 ]
 
@@ -19,7 +23,29 @@ POLICIES: Dict[str, object] = {
 }
 
 # Events that trigger orchestration flows.
-EVENTS: List[str] = ["OnMint", "OnUpgrade", "OnRevocation"]
+EVENTS: List[str] = [
+    "OnSignup",
+    "OnVerificationApproved",
+    "OnMint",
+    "OnUpgrade",
+    "OnRevocation",
+    "OnPortalRequest",
+]
+
+HANDOFF_SCHEMA: Dict[str, Dict[str, object]] = {
+    "ProtocolDesigner->CodeGen": {
+        "required_fields": ["task_id", "scope", "acceptance_criteria"],
+        "output": "implementation_plan"
+    },
+    "CodeGen->TestAudit": {
+        "required_fields": ["task_id", "files_changed", "risk_notes"],
+        "output": "test_report"
+    },
+    "TestAudit->UXUI": {
+        "required_fields": ["task_id", "known_limits", "api_contract"],
+        "output": "ux_changes"
+    }
+}
 
 
 def get_orchestration_graph() -> Dict[str, object]:
@@ -28,4 +54,5 @@ def get_orchestration_graph() -> Dict[str, object]:
         "agents": AGENTS,
         "policies": POLICIES,
         "events": EVENTS,
+        "handoff_schema": HANDOFF_SCHEMA,
     }

@@ -1,6 +1,13 @@
 const express = require('express');
 const { ethers } = require('ethers');
 const onchainVerifier = require('./tools/onchainVerifier');
+const profileDb = require('./tools/profileDb');
+const zkProof = require('./tools/zkProof');
+const walletTool = require('./tools/wallet');
+const trustScoreStore = require('./tools/trustScoreStore');
+const vectorStore = require('./tools/vectorStore');
+const chatGuide = require('./tools/chatGuide');
+const { createPortalRouter } = require('./portals/router');
 const { loadApiEnv } = require('./tools/loadEnv');
 
 loadApiEnv();
@@ -27,6 +34,7 @@ const CORS_ALLOWED_ORIGINS = (process.env.CORS_ALLOWED_ORIGINS || '')
   .filter(Boolean);
 const CORS_ALLOW_ALL = CORS_ALLOWED_ORIGINS.includes('*');
 const CORS_ALLOW_CREDENTIALS = process.env.CORS_ALLOW_CREDENTIALS === '1';
+const TRUST_SCORE_DEFAULT = Number(process.env.TRUST_SCORE_DEFAULT || 35);
 
 // ABI for the LifePassSBT contract.  In practice, generate this with `solc` or Foundry and import
 // the JSON.  Here we define a minimal ABI for minting and updating.
@@ -205,7 +213,7 @@ app.post('/proof/verify-onchain',
  */
 app.post('/sbt/mint', async (req, res) => {
   try {
-    const { to, tokenId, metadata } = req.body;
+    const { to, tokenId, metadata, userId } = req.body;
     if (!to || !tokenId || !metadata) {
       return res.status(400).json({ success: false, error: 'Missing required fields' });
     }
@@ -223,6 +231,20 @@ app.post('/sbt/mint', async (req, res) => {
 
     const tx = await sbtContract.mint(to, tokenId, metadata);
     await tx.wait();
+
+    if (userId) {
+      await profileDb.patchProfile(userId, {
+        walletAddress: to,
+        mintedTokenId: tokenId,
+        mintedTxHash: tx.hash,
+        mintedAt: new Date().toISOString()
+      });
+      const existingTrust = await trustScoreStore.getTrustScore(userId);
+      if (!existingTrust.updatedAt) {
+        await trustScoreStore.updateTrustScore(userId, TRUST_SCORE_DEFAULT, 'initial-mint');
+      }
+    }
+
     res.json({ success: true, txHash: tx.hash });
   } catch (err) {
     console.error(err);
@@ -232,9 +254,6 @@ app.post('/sbt/mint', async (req, res) => {
 
 // Integrate PurposeGuide agent with mock tools
 const PurposeGuide = require('../../agents/purpose_guide_agent');
-const profileDb = require('./tools/profileDb');
-const zkProof = require('./tools/zkProof');
-const walletTool = require('./tools/wallet');
 
 const agent = new PurposeGuide(profileDb, zkProof, walletTool);
 
@@ -246,6 +265,161 @@ function requireApiKey(req, res, next) {
   if (!provided || provided !== apiKey) return res.status(401).json({ success: false, error: 'Unauthorized' });
   next();
 }
+
+app.use('/portals', createPortalRouter());
+
+app.post('/onboarding/signup',
+  body('userId').isString().notEmpty(),
+  body('name').isString().notEmpty(),
+  body('purpose').isString().notEmpty(),
+  body('skills').isArray(),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
+
+    try {
+      const { userId, name, purpose, skills, verificationDocs } = req.body;
+      const profile = {
+        userId,
+        name,
+        purpose,
+        skills,
+        verificationDocs: verificationDocs || [],
+        verificationStatus: 'pending',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      await profileDb.upsertProfile(userId, profile);
+      await vectorStore.upsertEmbedding(
+        `profile:${userId}`,
+        `${purpose} ${(skills || []).join(' ')}`,
+        { userId, type: 'profile' }
+      );
+      return res.status(201).json({ success: true, profile });
+    } catch (err) {
+      console.error('onboarding/signup error', err);
+      return res.status(500).json({ success: false, error: 'Signup error' });
+    }
+  }
+);
+
+app.post('/onboarding/verify',
+  requireApiKey,
+  body('userId').isString().notEmpty(),
+  body('status').isIn(['pending', 'approved', 'rejected']),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
+    try {
+      const { userId, status } = req.body;
+      const profile = await profileDb.getProfile(userId);
+      if (!profile) return res.status(404).json({ success: false, error: 'Profile not found' });
+
+      const updated = await profileDb.patchProfile(userId, {
+        verificationStatus: status,
+        verificationReviewedAt: new Date().toISOString()
+      });
+
+      let trust = await trustScoreStore.getTrustScore(userId);
+      if (status === 'approved') {
+        trust = await trustScoreStore.updateTrustScore(userId, Math.max(TRUST_SCORE_DEFAULT, trust.score), 'onboarding-approval');
+      }
+
+      return res.json({ success: true, profile: updated, trust });
+    } catch (err) {
+      console.error('onboarding/verify error', err);
+      return res.status(500).json({ success: false, error: 'Verification workflow error' });
+    }
+  }
+);
+
+app.get('/trust/:userId', async (req, res) => {
+  try {
+    const trust = await trustScoreStore.getTrustScore(req.params.userId);
+    return res.json({ success: true, trust });
+  } catch (err) {
+    console.error('trust get error', err);
+    return res.status(500).json({ success: false, error: 'Trust score lookup failed' });
+  }
+});
+
+app.post('/trust/:userId/update',
+  requireApiKey,
+  body('score').isNumeric(),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
+    try {
+      const trust = await trustScoreStore.updateTrustScore(req.params.userId, req.body.score, req.body.reason || 'manual-update');
+      await profileDb.patchProfile(req.params.userId, { trustScore: trust.score, trustLevel: trust.level });
+      return res.json({ success: true, trust });
+    } catch (err) {
+      console.error('trust update error', err);
+      return res.status(500).json({ success: false, error: 'Trust score update failed' });
+    }
+  }
+);
+
+app.get('/users/:userId/dashboard', async (req, res) => {
+  try {
+    const profile = await profileDb.getProfile(req.params.userId);
+    if (!profile) return res.status(404).json({ success: false, error: 'Profile not found' });
+    const trust = await trustScoreStore.getTrustScore(req.params.userId);
+    return res.json({ success: true, profile, trust });
+  } catch (err) {
+    console.error('dashboard error', err);
+    return res.status(500).json({ success: false, error: 'Dashboard lookup failed' });
+  }
+});
+
+app.post('/embeddings/upsert',
+  requireApiKey,
+  body('id').isString().notEmpty(),
+  body('text').isString().notEmpty(),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
+    try {
+      const item = await vectorStore.upsertEmbedding(req.body.id, req.body.text, req.body.metadata || {});
+      return res.status(201).json({ success: true, item });
+    } catch (err) {
+      console.error('embeddings upsert error', err);
+      return res.status(500).json({ success: false, error: 'Embedding upsert failed' });
+    }
+  }
+);
+
+app.post('/embeddings/query',
+  body('text').isString().notEmpty(),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
+    try {
+      const matches = await vectorStore.queryEmbeddings(req.body.text, req.body.limit || 5);
+      return res.json({ success: true, matches });
+    } catch (err) {
+      console.error('embeddings query error', err);
+      return res.status(500).json({ success: false, error: 'Embedding query failed' });
+    }
+  }
+);
+
+app.post('/ai/chat',
+  body('userId').isString().notEmpty(),
+  body('message').isString().notEmpty(),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
+    try {
+      const profile = await profileDb.getProfile(req.body.userId);
+      const result = await chatGuide.respond({ userId: req.body.userId, message: req.body.message, profile });
+      return res.json({ success: true, result });
+    } catch (err) {
+      console.error('ai chat error', err);
+      return res.status(500).json({ success: false, error: 'Chat guide failed' });
+    }
+  }
+);
 
 /**
  * POST /flow/mint
@@ -262,6 +436,9 @@ app.post('/flow/mint',
       // Fetch profile
       const profile = await profileDb.getProfile(userId);
       if (!profile) return res.status(404).json({ success: false, error: 'Profile not found' });
+      if (profile.verificationStatus && profile.verificationStatus !== 'approved') {
+        return res.status(400).json({ success: false, error: 'Profile not yet approved for minting' });
+      }
       // Generate ZK proof
       const proof = await zkProof.generateOver18Proof(userId, profile);
       // Verify on-chain

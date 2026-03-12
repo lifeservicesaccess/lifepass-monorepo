@@ -62,4 +62,31 @@ async function upsertProfile(userId, profile) {
   return true;
 }
 
-module.exports = { getProfile, upsertProfile };
+async function listProfiles() {
+  if (pgClient) {
+    try {
+      const res = await pgClient.query('SELECT user_id, data FROM profiles');
+      return (res.rows || []).map((row) => ({ userId: row.user_id, ...(row.data || {}) }));
+    } catch (e) {
+      console.warn('Postgres list failed, falling back to file DB:', e.message || e);
+    }
+  }
+
+  await fs.mkdir(DATA_DIR, { recursive: true });
+  const profiles = await _readProfilesFile();
+  return Object.entries(profiles).map(([userId, profile]) => ({ userId, ...(profile || {}) }));
+}
+
+async function patchProfile(userId, patch) {
+  const current = (await getProfile(userId)) || { userId };
+  const next = {
+    ...current,
+    ...patch,
+    userId,
+    updatedAt: new Date().toISOString()
+  };
+  await upsertProfile(userId, next);
+  return next;
+}
+
+module.exports = { getProfile, upsertProfile, listProfiles, patchProfile };
