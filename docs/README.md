@@ -20,5 +20,8 @@ mkdocs serve
 - `frontend.md` — Guide to running the Next.js web app and integrating wallet providers.
 - `agent.md` — Description of the PurposeGuide agent and orchestration policies.
 - `qa.md` — Test plan covering smart contracts, API endpoints and end‑to‑end user flows.
+- `onboarding.md` — User signup, verification workflow and trust-score lifecycle.
+- `multi-portal.md` — Backend portal module design and routing strategy.
+- `ai-guide.md` — AI chat guide and vector embedding/search integration notes.
 
 Each of these files is currently a placeholder and should be expanded by the appropriate specialist GPTs or human collaborators as development progresses.

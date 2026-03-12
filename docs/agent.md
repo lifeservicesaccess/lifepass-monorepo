@@ -8,21 +8,25 @@ The LifePass system employs a multi‑agent architecture where specialised AI ag
 |---------------|---------------------------------------------------------------|
 | Orchestrator  | Maintains the backlog, assigns tasks to specialist agents, collects artifacts and enforces acceptance criteria. |
 | PurposeGuide  | Guides the user through the minting process by coordinating profile retrieval, proof generation and wallet operations. |
-| Verifier      | Handles document checks, face matching and registry attestations (stubbed in the current demo). |
+This document explains how the AI agent layer is expected to orchestrate workflows in the LifePass ecosystem.
 | Security      | Performs threat modelling, manages key policies and reviews secrets and permission configurations. |
 | QA/Evaluator  | Generates and runs test plans to ensure that contracts, circuits, APIs and UIs meet defined acceptance criteria. |
-| Tech Writer   | Produces documentation, whitepapers, API specs and runbooks.  | 
+The repository currently includes:
 
-## Orchestration Graph
-
+- `agents/purpose_guide_agent.py`
+- `agents/purpose_guide_agent.js`
+- `agents/chat_guide.py`
 The orchestration graph is defined in `agents/orchestration.py`.  It specifies which agents are available, their toolkits and the policies governing their interactions.  Events such as `OnMint` or `OnRevocation` trigger flows where the orchestrator delegates tasks to the appropriate agents.
 
 ## PurposeGuide Agent
+`ChatGuide` provides onboarding recommendations using user purpose, skills, and trust score context.
 
+In future iterations, these agents should:
 Implemented in `agents/purpose_guide_agent.py`, the `PurposeGuide` agent demonstrates how a high‑level agent may coordinate lower‑level tools:
 
-1. **Profile Retrieval:** Pulls user data from a profile database (mocked in the current demo).
+The `agents/orchestration.py` module now defines:
 2. **Proof Generation:** Requests a zero‑knowledge proof of age from the ZK proof tool.
-3. **Minting:** Invokes the wallet tool to call the smart contract and mint the LifePass SBT.
-
-Future work includes implementing the `profile_db`, `zk_proof_tool` and `wallet_tool` interfaces and integrating the agent with the frontend and backend services.
+- expanded agent roster (MetaOrchestrator, ChatGuide, AgriGPT, HealthGPT),
+- policy values,
+- trigger events for orchestration,
+- hand-off schema stubs between designer/codegen/test/ux roles.

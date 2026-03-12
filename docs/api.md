@@ -87,6 +87,43 @@ Example simulated response (dev fallback):
 
 Error responses include `success: false` and an `error` field.
 
+### POST `/onboarding/signup`
+
+Create a user onboarding record with purpose, skills and verification docs.
+
+### POST `/onboarding/verify`
+
+Protected by `x-api-key`. Updates verification status (`pending`, `approved`, `rejected`).
+Approval initializes a baseline trust score.
+
+### GET `/trust/:userId`
+
+Returns trust score record for a user.
+
+### POST `/trust/:userId/update`
+
+Protected by `x-api-key`. Updates trust score with reason.
+
+### POST `/ai/chat`
+
+Returns onboarding guidance and portal recommendation using profile + trust + semantic matches.
+
+### POST `/embeddings/upsert`
+
+Protected by `x-api-key`. Upserts an embedding entry.
+
+### POST `/embeddings/query`
+
+Performs semantic search against stored user-purpose/skills embeddings.
+
+### Portal Routes
+
+- `GET /portals/commons/status`
+- `GET /portals/agri/status`
+- `POST /portals/agri/requests`
+- `GET /portals/agri/requests`
+- `GET /portals/health/status`
+
 ## Future API Extensions
 
 Additional endpoints may include:

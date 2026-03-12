@@ -35,14 +35,26 @@ $env:DEPLOY_GAS_STRATEGY='provider'; npm run deploy:sbt
 - `POST /flow/mint` — Full flow: fetch profile, ZK proof, on-chain verify, mint SBT
 - `POST /proof/verify-onchain` — Verify proof using on-chain contract (or fallback)
 - `POST /sbt/mint` — Direct mint (requires contract configured)
+- `POST /onboarding/signup` — Create profile with purpose/skills and verification docs
+- `POST /onboarding/verify` — Approve/reject onboarding (API key protected)
+- `GET /users/:userId/dashboard` — Return profile + trust score
+- `GET /trust/:userId` — Read trust score
+- `POST /trust/:userId/update` — Update trust score (API key protected)
+- `POST /ai/chat` — AI onboarding/navigation guide response
+- `POST /embeddings/upsert` — Upsert embedding entry (API key protected)
+- `POST /embeddings/query` — Semantic query against embedding store
+- `GET /portals/*` and `POST /portals/agri/requests` — Multi-portal stubs
 
 ### Auth
 - Set `API_KEY` env var and use `x-api-key` header for protected endpoints
 
 ### Environment
 - `PG_CONNECTION_STRING` or `DATABASE_URL` for Postgres
+- `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` for managed profile/document storage integration
 - `RPC_URL`, `PRIVATE_KEY`, `SBT_CONTRACT_ADDRESS`, `AGE_VERIFIER_ADDRESS` for contract ops
 - Optional real ZK mode: set `USE_SNARKJS=1` and provide `SNARK_WASM_PATH`, `SNARK_ZKEY_PATH`, `SNARK_VKEY_PATH`
+- `TRUST_SCORE_DEFAULT` for approved-user baseline trust score
+- `OPENAI_API_KEY` for model-backed chat guide (current default is deterministic stub)
 - `CORS_ALLOWED_ORIGINS` (comma-separated browser origin allowlist)
 - `CORS_ALLOW_CREDENTIALS=1` only if cross-site credentials are required
 - `STARTUP_STRICT=1` to fail fast on startup check failures

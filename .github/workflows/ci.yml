@@ -19,6 +19,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 18
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
       - name: Install API dependencies
         working-directory: services/api
         run: npm ci
@@ -32,6 +35,8 @@ jobs:
       - name: Run API tests
         working-directory: services/api
         run: npm test
+      - name: Run agent python tests
+        run: python -m unittest discover -s agents/tests -p "test_*.py"
       - name: Validate SNARK artifacts (optional)
         if: env.USE_SNARKJS == '1'
         working-directory: services/api
@@ -46,6 +51,28 @@ jobs:
       - name: Build web app
         run: |
           cd apps/web && npm run build
+
+  deploy-web-vercel:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.VERCEL_ENABLED == '1'
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+      - name: Install Vercel CLI
+        run: npm install --global vercel@latest
+      - name: Deploy web to Vercel
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          cd apps/web
+          vercel pull --yes --environment=production --token=$VERCEL_TOKEN
+          vercel build --prod --token=$VERCEL_TOKEN
+          vercel deploy --prebuilt --prod --token=$VERCEL_TOKEN
 
   zk-mode-smoke:
     if: vars.USE_SNARKJS == '1'

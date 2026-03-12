@@ -41,3 +41,13 @@ Deploy the `LifePassSBT` contract using OpenZeppelinâ€™s proxy tools or Foundryâ
 - Foundry config is located at `contracts/foundry.toml`.
 - CI runs `forge build` and `forge test` from the `contracts/` directory.
 - OpenZeppelin upgradeable imports are remapped to `services/api/node_modules/@openzeppelin/contracts-upgradeable`.
+
+## LifePassTrustRegistry
+
+Companion contract: `contracts/LifePassTrustRegistry.sol`
+
+- Stores trust score per holder address (`0..100`).
+- Emits `TrustScoreUpdated` on every mutation.
+- Role-protected updates via `SCORE_UPDATER_ROLE`.
+
+Tests: `contracts/test/LifePassTrustRegistry.t.sol`.

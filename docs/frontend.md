@@ -26,7 +26,6 @@ The web client is located under `apps/web`.  It uses Next.js and React to provid
 For local development, the web app proxies `/proof`, `/sbt`, and `/flow` to `LOCAL_API_BASE_URL` (default `http://localhost:3003`) via Next.js rewrites.
 
 For deployed environments (for example Vercel), set:
-
 - `NEXT_PUBLIC_API_BASE_URL=https://<your-api-domain>`
 
 and ensure your API service allows CORS from the web app domain.
@@ -45,10 +44,12 @@ This split deployment is required because local rewrites target `localhost` and 
 ### Extending the Interface
 
 Future enhancements include:
-
-- Integrating WalletConnect or MetaMask to automatically populate the wallet address and sign transactions.
-- Providing a UI for generating the zero‑knowledge proof (e.g., collecting birth date and computing witness inputs in the browser).
 - Displaying the user’s minted LifePass tokens and verification level.
+Additional pages:
+
+- `/signup` — onboarding profile form and verification-doc stub upload fields.
+- `/dashboard` — trust score and verification status view by userId.
+- `components/GuideChat.js` — AI onboarding prompt and portal recommendation widget.
 
 ### Wallet Integration
 
