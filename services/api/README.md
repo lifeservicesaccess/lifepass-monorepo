@@ -48,6 +48,8 @@ $env:DEPLOY_GAS_STRATEGY='provider'; npm run deploy:sbt
 - `POST /auth/sso/verify` — Verify LifePass SSO token
 - `GET /pass/qr-payload/:userId` — Generate QR payload for mobile pass
 - `GET /pass/qr/:userId` — Generate QR code data URL for LifePass pass
+- `GET /portals/commons/me` — Return verified portal identity (Bearer token)
+- `GET /portals/health/age-gated-services` — Silver+ route via portal policy
 - `GET /users/:userId/dashboard` — Return profile + trust score
 - `GET /trust/:userId` — Read trust score
 - `POST /trust/:userId/update` — Update trust score (API key protected)
@@ -58,6 +60,10 @@ $env:DEPLOY_GAS_STRATEGY='provider'; npm run deploy:sbt
 
 ### Auth
 - Set `API_KEY` env var and use `x-api-key` header for protected endpoints
+- Portal protected routes use `Authorization: Bearer <lifepass-sso-token>`
+- Portal trust policy defaults:
+	- Bronze: `POST /portals/agri/requests`, `GET /portals/commons/me`
+	- Silver: `GET /portals/agri/requests`, `GET /portals/health/age-gated-services`
 
 ### Environment
 - `PG_CONNECTION_STRING` or `DATABASE_URL` for Postgres

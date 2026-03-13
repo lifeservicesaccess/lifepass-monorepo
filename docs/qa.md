@@ -26,6 +26,8 @@ Current integration tests use Node's built-in test runner (`node --test`) and no
 - upload intent + media reference persistence
 - verification add/revoke workflow
 - trust-level recalculation side effects
+- SSO token issue/verify and QR pass payload endpoints
+- portal access middleware trust gating (Bronze vs Silver route access)
 
 ## Frontend
 
