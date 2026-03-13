@@ -5,6 +5,8 @@
     "start": "node index.js",
     "start:dev": "nodemon index.js",
     "test": "node --test tests/*.test.js",
+    "db:migrate": "node scripts/run_migrations.js",
+    "check:schema": "node scripts/check_schema.js",
     "validate:snark": "node scripts/validate_snark_artifacts.js",
     "deploy:sbt": "node scripts/deploy_contract.js",
     "deploy:sbt:dry": "node -e \"const m=require('./scripts/deploy_contract'); process.env.DEPLOY_DRY_RUN='1'; m.deploy().then((r)=>{console.log('Deploy result', r);}).catch((e)=>{console.error('Deploy failed:', e); process.exit(1);});\""

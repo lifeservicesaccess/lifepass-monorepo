@@ -1,7 +1,9 @@
 # LifePass API Endpoints
 
 ## Profile DB
-- Migration: `node scripts/migrate_profiles.js` (creates `profiles` table in Postgres)
+- Migration: `npm run db:migrate` (applies SQL files in `db/migrations/`)
+- Legacy alias: `node scripts/migrate_profiles.js`
+- Schema check: `npm run check:schema`
 - Seed: `node scripts/seed_profiles.js` (adds demo users)
 
 ## Contract Deployment
@@ -36,7 +38,12 @@ $env:DEPLOY_GAS_STRATEGY='provider'; npm run deploy:sbt
 - `POST /proof/verify-onchain` — Verify proof using on-chain contract (or fallback)
 - `POST /sbt/mint` — Direct mint (requires contract configured)
 - `POST /onboarding/signup` — Create profile with purpose/skills and verification docs
+- `POST /onboarding/upload-url` — Generate upload intent + persist biometric/photo reference
+- `GET /onboarding/media/:userId` — List profile media references
 - `POST /onboarding/verify` — Approve/reject onboarding (API key protected)
+- `POST /verifications/add` — Add endorsement/document/mutual verification (API key protected)
+- `POST /verifications/revoke` — Revoke existing verification entry (API key protected)
+- `GET /verifications/:userId` — Fetch verification events + summary metrics
 - `GET /users/:userId/dashboard` — Return profile + trust score
 - `GET /trust/:userId` — Read trust score
 - `POST /trust/:userId/update` — Update trust score (API key protected)
@@ -51,6 +58,8 @@ $env:DEPLOY_GAS_STRATEGY='provider'; npm run deploy:sbt
 ### Environment
 - `PG_CONNECTION_STRING` or `DATABASE_URL` for Postgres
 - `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` for managed profile/document storage integration
+- `SUPABASE_STORAGE_BUCKET` for onboarding image uploads
+- Optional S3 mode: `S3_BUCKET`, `S3_REGION` (API returns reference URL; external presign service can be attached)
 - `RPC_URL`, `PRIVATE_KEY`, `SBT_CONTRACT_ADDRESS`, `AGE_VERIFIER_ADDRESS` for contract ops
 - Optional real ZK mode: set `USE_SNARKJS=1` and provide `SNARK_WASM_PATH`, `SNARK_ZKEY_PATH`, `SNARK_VKEY_PATH`
 - `TRUST_SCORE_DEFAULT` for approved-user baseline trust score

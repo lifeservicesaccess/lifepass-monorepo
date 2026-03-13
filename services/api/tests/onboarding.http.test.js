@@ -153,7 +153,7 @@ test('signup normalizes new M1 fields and supports verifier submission', async (
   assert.equal(verifier.body.submission.verifierType, 'church');
   assert.ok(verifier.body.trust);
   assert.ok(Array.isArray(verifier.body.trust.reasonCodes));
-  assert.ok(verifier.body.trust.reasonCodes.includes('verifier_sources_1'));
+  assert.ok(verifier.body.trust.reasonCodes.includes('endorsements_1'));
 });
 
 test('verifier submission validates input and profile existence', async () => {
@@ -221,4 +221,111 @@ test('chat and portal stubs return recommendations and responses', async () => {
   assert.equal(agriStatus.status, 200);
   assert.equal(agriStatus.body.success, true);
   assert.equal(agriStatus.body.portal, 'agri');
+});
+
+test('onboarding upload-url stores biometric reference on profile', async () => {
+  const userId = `user-upload-${Date.now()}`;
+  const signup = await requestJson('/onboarding/signup', 'POST', {
+    userId,
+    legalName: 'Upload User',
+    preferredCovenantName: 'Pilgrim One',
+    purposeStatement: 'Serve local food systems',
+    coreSkills: ['operations']
+  });
+
+  assert.equal(signup.status, 201);
+
+  const upload = await requestJson('/onboarding/upload-url', 'POST', {
+    userId,
+    fileName: 'face.jpg',
+    contentType: 'image/jpeg',
+    mediaType: 'biometric-photo'
+  });
+
+  assert.equal(upload.status, 201);
+  assert.equal(upload.body.success, true);
+  assert.ok(upload.body.upload.provider);
+  assert.ok(upload.body.media.mediaId);
+
+  const dashboard = await requestJson(`/users/${userId}/dashboard`, 'GET');
+  assert.equal(dashboard.status, 200);
+  assert.equal(dashboard.body.success, true);
+  assert.equal(typeof dashboard.body.profile.biometricPhotoRef, 'string');
+});
+
+test('verification add and revoke endpoints recalculate trust and status', async () => {
+  const userId = `user-verif-${Date.now()}`;
+  const signup = await requestJson('/onboarding/signup', 'POST', {
+    userId,
+    legalName: 'Verification User',
+    purposeStatement: 'Build trust workflows',
+    coreSkills: ['coordination']
+  });
+  assert.equal(signup.status, 201);
+
+  const endorsement1 = await requestJson(
+    '/verifications/add',
+    'POST',
+    {
+      userId,
+      kind: 'endorsement',
+      status: 'approved',
+      verifierName: 'Verifier A',
+      note: 'Strong character'
+    },
+    { 'x-api-key': 'test-key' }
+  );
+  assert.equal(endorsement1.status, 201);
+
+  const endorsement2 = await requestJson(
+    '/verifications/add',
+    'POST',
+    {
+      userId,
+      kind: 'endorsement',
+      status: 'approved',
+      verifierName: 'Verifier B',
+      note: 'Consistent service'
+    },
+    { 'x-api-key': 'test-key' }
+  );
+  assert.equal(endorsement2.status, 201);
+
+  const documentCheck = await requestJson(
+    '/verifications/add',
+    'POST',
+    {
+      userId,
+      kind: 'document',
+      status: 'approved',
+      documentType: 'passport',
+      verifierName: 'Doc Checker'
+    },
+    { 'x-api-key': 'test-key' }
+  );
+  assert.equal(documentCheck.status, 201);
+  assert.equal(documentCheck.body.verificationStatus, 'approved');
+  assert.equal(documentCheck.body.trust.level, 'Silver');
+
+  const list = await requestJson(`/verifications/${userId}`, 'GET');
+  assert.equal(list.status, 200);
+  assert.equal(list.body.success, true);
+  assert.equal(list.body.summary.approvedEndorsements, 2);
+  assert.equal(list.body.summary.approvedDocumentChecks, 1);
+
+  const revoke = await requestJson(
+    '/verifications/revoke',
+    'POST',
+    {
+      userId,
+      verificationId: documentCheck.body.event.verificationId,
+      reason: 'Document expired',
+      reviewerId: 'reviewer-z'
+    },
+    { 'x-api-key': 'test-key' }
+  );
+
+  assert.equal(revoke.status, 200);
+  assert.equal(revoke.body.success, true);
+  assert.equal(revoke.body.verificationStatus, 'pending');
 });

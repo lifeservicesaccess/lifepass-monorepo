@@ -91,6 +91,36 @@ Error responses include `success: false` and an `error` field.
 
 Create a user onboarding record with purpose, skills and verification docs.
 
+Supports Sprint 1 identity fields:
+
+- `legalName`
+- `preferredCovenantName` (or legacy `covenantName`)
+- `biometricPhotoRef` and `biometricPhotoUrl` (optional)
+
+### POST `/onboarding/upload-url`
+
+Creates an upload intent for biometric/photo files and stores the media reference on the profile.
+
+### GET `/onboarding/media/:userId`
+
+Lists media references associated with a profile.
+
+### POST `/verifications/add`
+
+Protected by `x-api-key`. Adds verification events for:
+
+- `endorsement`
+- `document` (`passport|national-id|utility-bill|selfie-match|other`)
+- `mutual` (web-of-trust edge)
+
+### POST `/verifications/revoke`
+
+Protected by `x-api-key`. Revokes a verification event by `verificationId`.
+
+### GET `/verifications/:userId`
+
+Returns verification events plus computed summary metrics.
+
 ### POST `/onboarding/verify`
 
 Protected by `x-api-key`. Updates verification status (`pending`, `approved`, `rejected`).
@@ -99,6 +129,8 @@ Approval initializes a baseline trust score.
 ### GET `/trust/:userId`
 
 Returns trust score record for a user.
+
+Sprint 1 trust policy (`policyVersion: v2`) factors in verification endorsements, document checks, mutual links, rejected docs, and mint state.
 
 ### POST `/trust/:userId/update`
 

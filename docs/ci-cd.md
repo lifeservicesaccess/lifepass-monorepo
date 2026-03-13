@@ -56,7 +56,7 @@ jobs:
           cd ../../apps/web && npx eslint . --max-warnings=0
       - name: Run API tests
         run: |
-          cd services/api && npm test
+          cd services/api && npm run check:schema && npm test
       - name: Compile and test contracts
         run: |
           forge build
@@ -67,6 +67,8 @@ jobs:
 ```
 
 Adjust the workflow as needed for deployment steps and additional services.  Store secrets (e.g., RPC URLs, private keys) in GitHub repository secrets and reference them in the workflow.
+
+For Sprint 1, keep SQL migration artifacts under `services/api/db/migrations/` and enforce their presence with `npm run check:schema`.
 
 ## Optional SNARK CI Stage
 
