@@ -5,7 +5,7 @@ function registerHealthRoutes(router, access = {}) {
     res.json({ success: true, portal: 'health', features: ['clinic-discovery-stub', 'age-gated-services'] });
   });
 
-  router.get('/health/age-gated-services', requirePortalAccess({ minTrustLevel: 'silver' }), (req, res) => {
+  router.get('/health/age-gated-services', requirePortalAccess({ covenant: 'health', policyKey: 'ageGatedServices' }), (req, res) => {
     res.json({
       success: true,
       portal: 'health',
