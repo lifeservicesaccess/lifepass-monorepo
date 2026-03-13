@@ -35,6 +35,7 @@ const CORS_ALLOWED_ORIGINS = (process.env.CORS_ALLOWED_ORIGINS || '')
 const CORS_ALLOW_ALL = CORS_ALLOWED_ORIGINS.includes('*');
 const CORS_ALLOW_CREDENTIALS = process.env.CORS_ALLOW_CREDENTIALS === '1';
 const TRUST_SCORE_DEFAULT = Number(process.env.TRUST_SCORE_DEFAULT || 35);
+const ONBOARDING_BRONZE_SCORE = Math.max(0, Math.min(49, TRUST_SCORE_DEFAULT));
 
 // ABI for the LifePassSBT contract.  In practice, generate this with `solc` or Foundry and import
 // the JSON.  Here we define a minimal ABI for minting and updating.
@@ -49,6 +50,7 @@ const wallet = PRIVATE_KEY ? new ethers.Wallet(PRIVATE_KEY, provider) : null;
 const sbtContract = SBT_CONTRACT_ADDRESS && wallet
   ? new ethers.Contract(SBT_CONTRACT_ADDRESS, LIFE_PASS_ABI, wallet)
   : null;
+const flowMintLocks = new Set();
 
 function isValidPrivateKey(value) {
   return typeof value === 'string' && /^0x[a-fA-F0-9]{64}$/.test(value);
@@ -111,6 +113,26 @@ function printStartupChecklist(report) {
   for (const item of report.items) {
     console.log(`[${item.status.toUpperCase()}] ${item.check}: ${item.detail}`);
   }
+}
+
+function toStringArray(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item).trim()).filter(Boolean);
+  }
+  if (typeof value === 'string') {
+    return value.split(',').map((item) => item.trim()).filter(Boolean);
+  }
+  return [];
+}
+
+function parseEvmError(err) {
+  if (!err) return 'Unknown blockchain error';
+  if (err.shortMessage) return err.shortMessage;
+  if (err.reason) return err.reason;
+  if (err.info && err.info.error && err.info.error.message) return err.info.error.message;
+  if (err.error && err.error.message) return err.error.message;
+  if (err.message) return err.message;
+  return String(err);
 }
 
 // Production CORS allowlist: set CORS_ALLOWED_ORIGINS="https://app.example,https://preview.example"
@@ -218,6 +240,10 @@ app.post('/sbt/mint', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Missing required fields' });
     }
 
+    if (!ethers.isAddress(to)) {
+      return res.status(400).json({ success: false, error: 'Invalid recipient wallet address' });
+    }
+
     // Graceful fallback for local/dev environments without blockchain config.
     if (!sbtContract) {
       const simulatedTxHash = `0xSIMULATED_SBT_MINT_${Date.now()}`;
@@ -229,8 +255,33 @@ app.post('/sbt/mint', async (req, res) => {
       });
     }
 
-    const tx = await sbtContract.mint(to, tokenId, metadata);
-    await tx.wait();
+    let tx;
+    try {
+      tx = await sbtContract.mint(to, tokenId, metadata);
+      await tx.wait();
+    } catch (chainErr) {
+      const chainReason = parseEvmError(chainErr);
+      const allowSimulatedOnChainFailure = process.env.ALLOW_SIMULATED_MINT_ONCHAIN_FAILURE
+        ? process.env.ALLOW_SIMULATED_MINT_ONCHAIN_FAILURE === '1'
+        : process.env.NODE_ENV !== 'production';
+
+      if (allowSimulatedOnChainFailure) {
+        const simulatedTxHash = `0xSIMULATED_SBT_MINT_ERR_${Date.now()}`;
+        return res.json({
+          success: true,
+          txHash: simulatedTxHash,
+          simulated: true,
+          message: 'On-chain mint failed; simulated fallback returned',
+          chainError: chainReason
+        });
+      }
+
+      return res.status(502).json({
+        success: false,
+        error: 'On-chain mint failed',
+        reason: chainReason
+      });
+    }
 
     if (userId) {
       await profileDb.patchProfile(userId, {
@@ -247,8 +298,8 @@ app.post('/sbt/mint', async (req, res) => {
 
     res.json({ success: true, txHash: tx.hash });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, error: 'Error minting token' });
+    console.error('sbt/mint error', err);
+    res.status(500).json({ success: false, error: 'Error minting token', reason: parseEvmError(err) });
   }
 });
 
@@ -270,35 +321,125 @@ app.use('/portals', createPortalRouter());
 
 app.post('/onboarding/signup',
   body('userId').isString().notEmpty(),
-  body('name').isString().notEmpty(),
-  body('purpose').isString().notEmpty(),
-  body('skills').isArray(),
+  body('legalName').optional().isString(),
+  body('name').optional().isString(),
+  body('covenantName').optional().isString(),
+  body('purpose').optional().isString(),
+  body('purposeStatement').optional().isString(),
+  body('skills').optional(),
+  body('coreSkills').optional(),
+  body('callings').optional(),
+  body('verificationDocs').optional().isArray(),
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
 
     try {
-      const { userId, name, purpose, skills, verificationDocs } = req.body;
-      const profile = {
+      const {
         userId,
         name,
+        legalName,
+        covenantName,
         purpose,
+        purposeStatement,
         skills,
-        verificationDocs: verificationDocs || [],
+        coreSkills,
+        callings,
+        verificationDocs,
+        biometric
+      } = req.body;
+
+      const resolvedLegalName = String(legalName || name || '').trim();
+      const resolvedPurpose = String(purposeStatement || purpose || '').trim();
+      const resolvedSkills = toStringArray(coreSkills || skills);
+      const resolvedCallings = toStringArray(callings);
+      const resolvedDocs = Array.isArray(verificationDocs) ? verificationDocs : [];
+
+      if (!resolvedLegalName) {
+        return res.status(400).json({ success: false, error: 'legalName (or name) is required' });
+      }
+
+      if (!resolvedPurpose) {
+        return res.status(400).json({ success: false, error: 'purposeStatement (or purpose) is required' });
+      }
+
+      const trust = await trustScoreStore.updateTrustScore(userId, ONBOARDING_BRONZE_SCORE, 'onboarding-signup');
+
+      const profile = {
+        userId,
+        name: resolvedLegalName,
+        legalName: resolvedLegalName,
+        covenantName: covenantName ? String(covenantName).trim() : '',
+        purpose: resolvedPurpose,
+        purposeStatement: resolvedPurpose,
+        skills: resolvedSkills,
+        coreSkills: resolvedSkills,
+        callings: resolvedCallings,
+        biometric: biometric || {
+          hasFaceScan: false,
+          hasFingerprint: false,
+          source: 'self-declared'
+        },
+        verificationDocs: resolvedDocs,
         verificationStatus: 'pending',
+        trustScore: trust.score,
+        trustLevel: trust.level,
+        verifierSubmissions: [],
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
       };
       await profileDb.upsertProfile(userId, profile);
       await vectorStore.upsertEmbedding(
         `profile:${userId}`,
-        `${purpose} ${(skills || []).join(' ')}`,
+        `${resolvedPurpose} ${resolvedSkills.join(' ')} ${resolvedCallings.join(' ')}`,
         { userId, type: 'profile' }
       );
-      return res.status(201).json({ success: true, profile });
+      return res.status(201).json({ success: true, profile, trust });
     } catch (err) {
       console.error('onboarding/signup error', err);
       return res.status(500).json({ success: false, error: 'Signup error' });
+    }
+  }
+);
+
+app.post('/onboarding/verifier-submission',
+  body('userId').isString().notEmpty(),
+  body('verifierName').isString().notEmpty(),
+  body('verifierType').isIn(['church', 'school', 'co-op', 'employer', 'leader', 'other']),
+  body('relationship').optional().isString(),
+  body('endorsement').optional().isString(),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
+    try {
+      const { userId, verifierName, verifierType, relationship, endorsement } = req.body;
+      const profile = await profileDb.getProfile(userId);
+      if (!profile) return res.status(404).json({ success: false, error: 'Profile not found' });
+
+      const existing = Array.isArray(profile.verifierSubmissions) ? profile.verifierSubmissions : [];
+      const submission = {
+        verifierName: String(verifierName).trim(),
+        verifierType,
+        relationship: relationship ? String(relationship).trim() : '',
+        endorsement: endorsement ? String(endorsement).trim() : '',
+        submittedAt: new Date().toISOString()
+      };
+      const updatedSubmissions = [...existing, submission];
+
+      const updated = await profileDb.patchProfile(userId, {
+        verifierSubmissions: updatedSubmissions,
+        verificationSourcesCount: updatedSubmissions.length
+      });
+
+      return res.status(201).json({
+        success: true,
+        submission,
+        profile: updated,
+        verifierSubmissionsCount: updatedSubmissions.length
+      });
+    } catch (err) {
+      console.error('onboarding/verifier-submission error', err);
+      return res.status(500).json({ success: false, error: 'Verifier submission error' });
     }
   }
 );
@@ -307,17 +448,47 @@ app.post('/onboarding/verify',
   requireApiKey,
   body('userId').isString().notEmpty(),
   body('status').isIn(['pending', 'approved', 'rejected']),
+  body('reviewerId').optional().isString(),
+  body('reviewerNote').optional().isString(),
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
     try {
-      const { userId, status } = req.body;
+      const { userId, status, reviewerId, reviewerNote } = req.body;
       const profile = await profileDb.getProfile(userId);
       if (!profile) return res.status(404).json({ success: false, error: 'Profile not found' });
 
+      const currentStatus = profile.verificationStatus || 'pending';
+      const normalizedCurrent = ['pending', 'approved', 'rejected'].includes(currentStatus) ? currentStatus : 'pending';
+      const sameStatus = normalizedCurrent === status;
+      const allowedTransitions = {
+        pending: ['approved', 'rejected'],
+        approved: [],
+        rejected: []
+      };
+
+      if (!sameStatus && !allowedTransitions[normalizedCurrent].includes(status)) {
+        return res.status(400).json({
+          success: false,
+          error: `Invalid verification transition from ${normalizedCurrent} to ${status}`
+        });
+      }
+
       const updated = await profileDb.patchProfile(userId, {
         verificationStatus: status,
-        verificationReviewedAt: new Date().toISOString()
+        verificationReviewedAt: new Date().toISOString(),
+        verificationReviewerId: reviewerId || null,
+        verificationReviewerNote: reviewerNote || '',
+        verificationDecisionHistory: [
+          ...(Array.isArray(profile.verificationDecisionHistory) ? profile.verificationDecisionHistory : []),
+          {
+            from: normalizedCurrent,
+            to: status,
+            reviewerId: reviewerId || null,
+            reviewerNote: reviewerNote || '',
+            decidedAt: new Date().toISOString()
+          }
+        ]
       });
 
       let trust = await trustScoreStore.getTrustScore(userId);
@@ -433,9 +604,18 @@ app.post('/flow/mint',
     if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
     try {
       const { userId, mintOptions } = req.body || {};
+      if (flowMintLocks.has(userId)) {
+        return res.status(409).json({ success: false, error: 'Mint already in progress for this user' });
+      }
+      flowMintLocks.add(userId);
       // Fetch profile
       const profile = await profileDb.getProfile(userId);
       if (!profile) return res.status(404).json({ success: false, error: 'Profile not found' });
+
+      if (profile.mintStatus === 'submitted' || profile.mintStatus === 'confirmed' || profile.mintedTxHash) {
+        return res.status(409).json({ success: false, error: 'Profile already minted or mint already submitted' });
+      }
+
       if (profile.verificationStatus && profile.verificationStatus !== 'approved') {
         return res.status(400).json({ success: false, error: 'Profile not yet approved for minting' });
       }
@@ -446,11 +626,22 @@ app.post('/flow/mint',
       if (!verifyResult.verified) return res.status(400).json({ success: false, error: 'On-chain verification failed', verifyResult });
       // Mint SBT
       const result = await agent.handleMint(userId, mintOptions);
-      if (result && result.status === 'submitted') return res.json({ success: true, result, verifyResult });
+      if (result && result.status === 'submitted') {
+        await profileDb.patchProfile(userId, {
+          mintStatus: 'submitted',
+          mintedTxHash: result.tx_hash || null,
+          mintedSubmittedAt: new Date().toISOString()
+        });
+        return res.json({ success: true, result, verifyResult });
+      }
       return res.status(400).json({ success: false, result, verifyResult });
     } catch (err) {
       console.error('flow/mint error', err);
       res.status(500).json({ success: false, error: 'Flow error' });
+    } finally {
+      if (req.body && req.body.userId) {
+        flowMintLocks.delete(req.body.userId);
+      }
     }
   }
 );
