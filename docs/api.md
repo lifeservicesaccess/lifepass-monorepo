@@ -167,10 +167,14 @@ Performs semantic search against stored user-purpose/skills embeddings.
 ### Portal Routes
 
 - `GET /portals/commons/status`
+- `GET /portals/commons/me` (requires SSO bearer token; min Bronze)
 - `GET /portals/agri/status`
-- `POST /portals/agri/requests`
-- `GET /portals/agri/requests`
+- `POST /portals/agri/requests` (requires SSO bearer token; min Bronze)
+- `GET /portals/agri/requests` (requires SSO bearer token; min Silver)
 - `GET /portals/health/status`
+- `GET /portals/health/age-gated-services` (requires SSO bearer token; min Silver)
+
+For protected portal routes, pass `Authorization: Bearer <token>` where token is created by `/auth/sso/token`.
 
 ## Future API Extensions
 
