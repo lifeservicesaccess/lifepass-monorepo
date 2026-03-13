@@ -8,6 +8,8 @@ const trustScoreStore = require('./tools/trustScoreStore');
 const verificationStore = require('./tools/verificationStore');
 const storageTool = require('./tools/storage');
 const profileMediaStore = require('./tools/profileMediaStore');
+const ssoAuth = require('./tools/ssoAuth');
+const passQr = require('./tools/passQr');
 const vectorStore = require('./tools/vectorStore');
 const chatGuide = require('./tools/chatGuide');
 const { createPortalRouter } = require('./portals/router');
@@ -104,6 +106,11 @@ function startupChecklist() {
       check: 'AGE_VERIFIER_ADDRESS format',
       status: AGE_VERIFIER_ADDRESS ? (ethers.isAddress(AGE_VERIFIER_ADDRESS) ? 'pass' : 'fail') : 'warn',
       detail: AGE_VERIFIER_ADDRESS ? (ethers.isAddress(AGE_VERIFIER_ADDRESS) ? 'valid address format' : 'invalid address format') : 'optional; not set'
+    },
+    {
+      check: 'LIFEPASS_SSO_JWT_SECRET configured',
+      status: ssoAuth.getSsoConfig().configured ? 'pass' : 'warn',
+      detail: ssoAuth.getSsoConfig().configured ? 'SSO token endpoints enabled' : 'not set; /auth/sso/token and /auth/sso/verify return 503'
     }
   ];
 
@@ -374,6 +381,14 @@ function requireApiKey(req, res, next) {
   const provided = req.header('x-api-key');
   if (!provided || provided !== apiKey) return res.status(401).json({ success: false, error: 'Unauthorized' });
   next();
+}
+
+function requireSsoConfigured(req, res, next) {
+  const config = ssoAuth.getSsoConfig();
+  if (!config.configured) {
+    return res.status(503).json({ success: false, error: 'SSO is not configured' });
+  }
+  return next();
 }
 
 app.use('/portals', createPortalRouter());
@@ -838,6 +853,92 @@ app.get('/users/:userId/dashboard', async (req, res) => {
   } catch (err) {
     console.error('dashboard error', err);
     return res.status(500).json({ success: false, error: 'Dashboard lookup failed' });
+  }
+});
+
+app.post('/auth/sso/token',
+  requireApiKey,
+  requireSsoConfigured,
+  body('userId').isString().notEmpty(),
+  body('audience').optional().isString(),
+  body('expiresIn').optional().isString(),
+  body('scope').optional(),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
+    try {
+      const { userId, audience, expiresIn, scope } = req.body;
+      const trust = await trustScoreStore.getTrustScore(userId);
+      const issued = ssoAuth.issueSsoToken({
+        userId,
+        trustLevel: trust.level,
+        trustScore: trust.score,
+        audience,
+        expiresIn,
+        scope: toStringArray(scope)
+      });
+      return res.status(201).json({
+        success: true,
+        token: issued.token,
+        tokenType: 'Bearer',
+        claims: {
+          lifePassId: userId,
+          trustLevel: trust.level,
+          trustScore: trust.score
+        },
+        audience: issued.audience,
+        expiresIn: issued.expiresIn
+      });
+    } catch (err) {
+      console.error('auth/sso/token error', err);
+      return res.status(500).json({ success: false, error: 'Failed to issue SSO token' });
+    }
+  }
+);
+
+app.post('/auth/sso/verify',
+  requireSsoConfigured,
+  body('token').isString().notEmpty(),
+  body('audience').optional().isString(),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
+
+    try {
+      const verified = ssoAuth.verifySsoToken(req.body.token, {
+        audience: req.body.audience
+      });
+      return res.json({ success: true, verified });
+    } catch (err) {
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid token',
+        reason: parseEvmError(err)
+      });
+    }
+  }
+);
+
+app.get('/pass/qr-payload/:userId', async (req, res) => {
+  try {
+    const trust = await trustScoreStore.getTrustScore(req.params.userId);
+    const payload = await passQr.buildPassPayload(req.params.userId, trust);
+    return res.json({ success: true, payload });
+  } catch (err) {
+    console.error('pass/qr-payload error', err);
+    return res.status(500).json({ success: false, error: 'Failed to generate pass payload' });
+  }
+});
+
+app.get('/pass/qr/:userId', async (req, res) => {
+  try {
+    const trust = await trustScoreStore.getTrustScore(req.params.userId);
+    const payload = await passQr.buildPassPayload(req.params.userId, trust);
+    const qrDataUrl = await passQr.buildQrCodeDataUrl(payload);
+    return res.json({ success: true, payload, qrDataUrl });
+  } catch (err) {
+    console.error('pass/qr error', err);
+    return res.status(500).json({ success: false, error: 'Failed to generate QR pass' });
   }
 });
 

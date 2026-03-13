@@ -44,6 +44,10 @@ $env:DEPLOY_GAS_STRATEGY='provider'; npm run deploy:sbt
 - `POST /verifications/add` — Add endorsement/document/mutual verification (API key protected)
 - `POST /verifications/revoke` — Revoke existing verification entry (API key protected)
 - `GET /verifications/:userId` — Fetch verification events + summary metrics
+- `POST /auth/sso/token` — Issue signed LifePass SSO token (API key protected)
+- `POST /auth/sso/verify` — Verify LifePass SSO token
+- `GET /pass/qr-payload/:userId` — Generate QR payload for mobile pass
+- `GET /pass/qr/:userId` — Generate QR code data URL for LifePass pass
 - `GET /users/:userId/dashboard` — Return profile + trust score
 - `GET /trust/:userId` — Read trust score
 - `POST /trust/:userId/update` — Update trust score (API key protected)
@@ -67,6 +71,10 @@ $env:DEPLOY_GAS_STRATEGY='provider'; npm run deploy:sbt
 - `CORS_ALLOWED_ORIGINS` (comma-separated browser origin allowlist)
 - `CORS_ALLOW_CREDENTIALS=1` only if cross-site credentials are required
 - `STARTUP_STRICT=1` to fail fast on startup check failures
+- `LIFEPASS_SSO_JWT_SECRET` to enable SSO issue/verify endpoints
+- `LIFEPASS_SSO_JWT_ISSUER` (default `lifepass-api`)
+- `LIFEPASS_SSO_DEFAULT_AUDIENCE` (default `zionstack-portals`)
+- `LIFEPASS_SSO_JWT_EXPIRES_IN` (default `15m`)
 
 ### Health & Startup Checklist
 - `GET /health` returns startup/env readiness checks.
