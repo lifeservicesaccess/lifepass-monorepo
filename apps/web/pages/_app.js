@@ -19,12 +19,12 @@ const { chains, provider } = configureChains(
 
 // Obtain default connectors (MetaMask, WalletConnect, etc.) for RainbowKit.
 // WalletConnect v2 requires a projectId. Provide it via NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID.
-const walletConnectProjectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID;
-if (!walletConnectProjectId) {
+const walletConnectProjectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || 'dev-walletconnect-project-id';
+if (!process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID) {
   // Log a clear message for developers — runtime will still run but walletconnect won't work.
   // It's recommended to set NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID in your .env.local.
   // Example: NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=your_project_id
-  console.warn('NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID is not set — WalletConnect v2 will not work.');
+  console.warn('NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID is not set — using dev fallback projectId for local/CI build only.');
 }
 const { connectors } = getDefaultWallets({
   appName: 'LifePass',

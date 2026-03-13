@@ -121,6 +121,28 @@ test('POST /flow/mint returns 200 and submitted result for eligible profile', as
   assert.equal(res.body.verifyResult.verified, true);
 });
 
+test('POST /flow/mint returns 409 when mint is attempted twice for same profile', async () => {
+  const userId = `user-over18-repeat-${Date.now()}`;
+  await profileDb.upsertProfile(userId, {
+    userId,
+    name: 'Flow Repeat User',
+    dob: '1994-01-01',
+    email: 'repeat@example.com',
+    verificationStatus: 'approved'
+  });
+
+  const first = await postJson('/flow/mint', { userId });
+  assert.equal(first.status, 200);
+  assert.equal(first.body.success, true);
+
+  const second = await postJson('/flow/mint', { userId });
+  assert.equal(second.status, 409);
+  assert.deepEqual(second.body, {
+    success: false,
+    error: 'Profile already minted or mint already submitted'
+  });
+});
+
 test('POST /flow/mint returns 400 for under-18 profile', async () => {
   const res = await postJson('/flow/mint', { userId: 'user-under18-test' });
 

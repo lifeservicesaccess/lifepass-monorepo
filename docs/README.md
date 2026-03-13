@@ -23,5 +23,6 @@ mkdocs serve
 - `onboarding.md` — User signup, verification workflow and trust-score lifecycle.
 - `multi-portal.md` — Backend portal module design and routing strategy.
 - `ai-guide.md` — AI chat guide and vector embedding/search integration notes.
+- `lifepass-portal-blueprint.md` — Product blueprint for the LifePass portal, including core layers, user journey, launch strategy, MVP stack, and monorepo milestone mapping.
 
 Each of these files is currently a placeholder and should be expanded by the appropriate specialist GPTs or human collaborators as development progresses.

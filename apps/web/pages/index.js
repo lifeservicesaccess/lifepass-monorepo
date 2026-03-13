@@ -69,11 +69,19 @@ export default function Home() {
       if (!mintRes.data.success) {
         setStatus('Mint failed: ' + (mintRes.data.error || 'unknown error'));
       } else {
-        setStatus('Mint successful! Transaction hash: ' + mintRes.data.txHash);
+        if (mintRes.data.simulated) {
+          const reasonSuffix = mintRes.data.chainError
+            ? ` (on-chain reason: ${mintRes.data.chainError})`
+            : '';
+          setStatus('Mint simulated (dev mode). Transaction reference: ' + mintRes.data.txHash + reasonSuffix);
+        } else {
+          setStatus('Mint successful on-chain. Transaction hash: ' + mintRes.data.txHash);
+        }
       }
     } catch (err) {
       console.error(err);
-      setStatus('Error: ' + err.message);
+      const backendError = err?.response?.data?.error;
+      setStatus('Error: ' + (backendError || err.message));
     }
   }
 
