@@ -121,6 +121,22 @@ Protected by `x-api-key`. Revokes a verification event by `verificationId`.
 
 Returns verification events plus computed summary metrics.
 
+### POST `/auth/sso/token`
+
+Protected by `x-api-key`. Issues a signed JWT containing LifePass identity and trust claims for portal SSO.
+
+### POST `/auth/sso/verify`
+
+Validates a previously issued LifePass SSO JWT and returns decoded claims.
+
+### GET `/pass/qr-payload/:userId`
+
+Returns the QR/NFC prototype payload (LifePass ID + trust level + trust score).
+
+### GET `/pass/qr/:userId`
+
+Returns the same payload plus a generated QR code data URL.
+
 ### POST `/onboarding/verify`
 
 Protected by `x-api-key`. Updates verification status (`pending`, `approved`, `rejected`).
