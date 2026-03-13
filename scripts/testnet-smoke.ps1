@@ -248,9 +248,10 @@ function Invoke-SmokeTests {
 
     if ($Mode -eq 'testnet' -and -not $AllowSimulatedMint) {
       Write-Host "Checking /sbt/mint is not simulated in testnet mode..." -ForegroundColor Cyan
+      $tokenId = [int64][DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
       $payload = @{
         to = '0x0000000000000000000000000000000000000001'
-        tokenId = 999001
+        tokenId = $tokenId
         metadata = @{
           purpose = 'SmokeTest'
           trustScore = 0

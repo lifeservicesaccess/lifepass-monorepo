@@ -28,14 +28,16 @@ function post(path, data) {
 
 (async () => {
   try {
+    const tokenId = Math.floor(Date.now() / 1000);
+
     console.log('-> POST /proof/submit');
-    let r = await post('/proof/submit', { publicSignals: { is_over_18: 1 } });
+    let r = await post('/proof/submit', { proof: '0x1234', publicSignals: { is_over_18: 1 } });
     console.log(r.statusCode, r.body);
 
     console.log('\n-> POST /sbt/mint');
     r = await post('/sbt/mint', {
       to: '0x0000000000000000000000000000000000000001',
-      tokenId: 1,
+      tokenId,
       metadata: { purpose: 'Test', trustScore: 0, verificationLevel: 'Silver', didUri: '' },
     });
     console.log(r.statusCode, r.body);
