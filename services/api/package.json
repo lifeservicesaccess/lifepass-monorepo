@@ -4,7 +4,7 @@
   "scripts": {
     "start": "node index.js",
     "start:dev": "nodemon index.js",
-    "test": "node --test tests/*.test.js",
+    "test": "node --test --test-concurrency=1 tests/*.test.js",
     "db:migrate": "node scripts/run_migrations.js",
     "check:schema": "node scripts/check_schema.js",
     "validate:snark": "node scripts/validate_snark_artifacts.js",
