@@ -2,17 +2,20 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const { spawn } = require('node:child_process');
+const fs = require('node:fs/promises');
+const path = require('node:path');
 
 const API_PORT = 3018;
 const API_BASE = `http://127.0.0.1:${API_PORT}`;
 const API_CWD = __dirname + '/..';
 const API_KEY = 'test-key-portal';
+const AUDIT_FILE = path.join(API_CWD, '..', 'data', 'portal-access-audit.json');
 
-function requestJson(path, method = 'GET', payload = null, headers = {}) {
+function requestJson(path, method = 'GET', payload = null, headers = {}, baseUrl = API_BASE) {
   return new Promise((resolve, reject) => {
     const body = payload ? JSON.stringify(payload) : '';
     const req = http.request(
-      `${API_BASE}${path}`,
+      `${baseUrl}${path}`,
       {
         method,
         headers: {
@@ -44,17 +47,18 @@ function requestJson(path, method = 'GET', payload = null, headers = {}) {
   });
 }
 
-function startApiServer() {
+function startApiServer(port = API_PORT, extraEnv = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn('node', ['index.js'], {
       cwd: API_CWD,
       env: {
         ...process.env,
-        PORT: String(API_PORT),
+        PORT: String(port),
         API_KEY,
         LIFEPASS_SSO_JWT_SECRET: 'test-sso-secret',
         LIFEPASS_SSO_JWT_ISSUER: 'lifepass-api-test',
-        LIFEPASS_SSO_DEFAULT_AUDIENCE: 'zionstack-portals'
+        LIFEPASS_SSO_DEFAULT_AUDIENCE: 'zionstack-portals',
+        ...extraEnv
       },
       stdio: ['ignore', 'pipe', 'pipe']
     });
@@ -62,7 +66,7 @@ function startApiServer() {
     const timeout = setTimeout(() => reject(new Error('API startup timeout')), 10000);
     child.stdout.on('data', (chunk) => {
       const out = chunk.toString();
-      if (out.includes(`API server listening on port ${API_PORT}`)) {
+      if (out.includes(`API server listening on port ${port}`)) {
         clearTimeout(timeout);
         resolve(child);
       }
@@ -85,6 +89,18 @@ async function issueTokenForUser(userId, audience = 'zionstack-portals') {
   return issued.body.token;
 }
 
+async function issueTokenForUserAt(baseUrl, userId, audience = 'zionstack-portals') {
+  const issued = await requestJson(
+    '/auth/sso/token',
+    'POST',
+    { userId, audience },
+    { 'x-api-key': API_KEY },
+    baseUrl
+  );
+  assert.equal(issued.status, 201);
+  return issued.body.token;
+}
+
 async function setTrust(userId, score) {
   const updated = await requestJson(
     `/trust/${userId}/update`,
@@ -96,9 +112,23 @@ async function setTrust(userId, score) {
   assert.equal(updated.body.success, true);
 }
 
+async function setTrustAt(baseUrl, userId, score) {
+  const updated = await requestJson(
+    `/trust/${userId}/update`,
+    'POST',
+    { score, reason: 'portal-access-test' },
+    { 'x-api-key': API_KEY },
+    baseUrl
+  );
+  assert.equal(updated.status, 200);
+  assert.equal(updated.body.success, true);
+}
+
 let server;
 
 test.before(async () => {
+  await fs.mkdir(path.dirname(AUDIT_FILE), { recursive: true });
+  await fs.writeFile(AUDIT_FILE, '[]', 'utf8');
   server = await startApiServer();
 });
 
@@ -154,4 +184,65 @@ test('silver can access gated list and health age-gated services', async () => {
   assert.equal(health.status, 200);
   assert.equal(health.body.success, true);
   assert.equal(health.body.identity.userId, userId);
+});
+
+test('policy matrix endpoint returns covenant policy config', async () => {
+  const response = await requestJson('/portals/policy-matrix', 'GET', null, { 'x-api-key': API_KEY });
+  assert.equal(response.status, 200);
+  assert.equal(response.body.success, true);
+  assert.equal(response.body.matrix.agri.createRequest.minTrustLevel, 'bronze');
+  assert.equal(response.body.matrix.agri.listRequests.minTrustLevel, 'silver');
+});
+
+test('access decisions are recorded in portal audit log', async () => {
+  const userId = `portal-audit-${Date.now()}`;
+  await setTrust(userId, 70);
+  const token = await issueTokenForUser(userId);
+
+  const allow = await requestJson('/portals/commons/me', 'GET', null, {
+    Authorization: `Bearer ${token}`
+  });
+  assert.equal(allow.status, 200);
+
+  const deny = await requestJson('/portals/agri/requests', 'GET', null);
+  assert.equal(deny.status, 401);
+
+  const audit = await requestJson('/portals/access-audit?limit=20', 'GET', null, { 'x-api-key': API_KEY });
+  assert.equal(audit.status, 200);
+  assert.equal(audit.body.success, true);
+  assert.ok(Array.isArray(audit.body.events));
+  assert.ok(audit.body.events.length >= 2);
+  const hasAllow = audit.body.events.some((evt) => evt.decision === 'allow');
+  const hasDeny = audit.body.events.some((evt) => evt.decision === 'deny');
+  assert.equal(hasAllow, true);
+  assert.equal(hasDeny, true);
+});
+
+test('policy matrix override can lower trust threshold via env config', async () => {
+  const overridePort = 3019;
+  const overrideBase = `http://127.0.0.1:${overridePort}`;
+  const overrideMatrix = JSON.stringify({
+    agri: {
+      listRequests: { minTrustLevel: 'bronze', audience: 'zionstack-portals' }
+    }
+  });
+
+  const overrideServer = await startApiServer(overridePort, {
+    LIFEPASS_PORTAL_POLICY_JSON: overrideMatrix
+  });
+
+  try {
+    const userId = `portal-override-${Date.now()}`;
+    await setTrustAt(overrideBase, userId, 35);
+    const token = await issueTokenForUserAt(overrideBase, userId);
+
+    const list = await requestJson('/portals/agri/requests', 'GET', null, {
+      Authorization: `Bearer ${token}`
+    }, overrideBase);
+
+    assert.equal(list.status, 200);
+    assert.equal(list.body.success, true);
+  } finally {
+    if (!overrideServer.killed) overrideServer.kill();
+  }
 });

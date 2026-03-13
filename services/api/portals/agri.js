@@ -7,7 +7,7 @@ function registerAgriRoutes(router, access = {}) {
     res.json({ success: true, portal: 'agri', covenant: 'Agri Covenant', features: ['service-request-stub'] });
   });
 
-  router.post('/agri/requests', requirePortalAccess({ minTrustLevel: 'bronze' }), (req, res) => {
+  router.post('/agri/requests', requirePortalAccess({ covenant: 'agri', policyKey: 'createRequest' }), (req, res) => {
     const { userId, cropType, requestType, details } = req.body || {};
     if (!userId || !requestType) {
       return res.status(400).json({ success: false, error: 'userId and requestType are required' });
@@ -26,7 +26,7 @@ function registerAgriRoutes(router, access = {}) {
     return res.status(201).json({ success: true, request: item });
   });
 
-  router.get('/agri/requests', requirePortalAccess({ minTrustLevel: 'silver' }), (_req, res) => {
+  router.get('/agri/requests', requirePortalAccess({ covenant: 'agri', policyKey: 'listRequests' }), (_req, res) => {
     res.json({ success: true, requestsCount: requests.length, requests });
   });
 }

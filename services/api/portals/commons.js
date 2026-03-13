@@ -5,7 +5,7 @@ function registerCommonsRoutes(router, access = {}) {
     res.json({ success: true, portal: 'commons', capabilities: ['identity', 'navigation', 'service-discovery'] });
   });
 
-  router.get('/commons/me', requirePortalAccess({ minTrustLevel: 'bronze' }), (req, res) => {
+  router.get('/commons/me', requirePortalAccess({ covenant: 'commons', policyKey: 'me' }), (req, res) => {
     res.json({ success: true, identity: req.portalIdentity || null });
   });
 }

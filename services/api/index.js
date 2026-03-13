@@ -10,6 +10,8 @@ const storageTool = require('./tools/storage');
 const profileMediaStore = require('./tools/profileMediaStore');
 const ssoAuth = require('./tools/ssoAuth');
 const passQr = require('./tools/passQr');
+const { readPolicyMatrix } = require('./portals/policyMatrix');
+const portalAccessAuditStore = require('./tools/portalAccessAuditStore');
 const vectorStore = require('./tools/vectorStore');
 const chatGuide = require('./tools/chatGuide');
 const { createPortalRouter } = require('./portals/router');
@@ -939,6 +941,27 @@ app.get('/pass/qr/:userId', async (req, res) => {
   } catch (err) {
     console.error('pass/qr error', err);
     return res.status(500).json({ success: false, error: 'Failed to generate QR pass' });
+  }
+});
+
+app.get('/portals/policy-matrix', requireApiKey, (_req, res) => {
+  const matrix = readPolicyMatrix();
+  return res.json({ success: true, matrix });
+});
+
+app.get('/portals/access-audit', requireApiKey, async (req, res) => {
+  try {
+    const limitRaw = Number(req.query.limit || 50);
+    const limit = Math.max(1, Math.min(500, Number.isFinite(limitRaw) ? limitRaw : 50));
+    const events = await portalAccessAuditStore.readAuditEvents();
+    return res.json({
+      success: true,
+      count: Math.min(limit, events.length),
+      events: events.slice(-limit)
+    });
+  } catch (err) {
+    console.error('portals/access-audit error', err);
+    return res.status(500).json({ success: false, error: 'Failed to read access audit events' });
   }
 });
 

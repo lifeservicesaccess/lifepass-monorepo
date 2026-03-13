@@ -48,6 +48,8 @@ $env:DEPLOY_GAS_STRATEGY='provider'; npm run deploy:sbt
 - `POST /auth/sso/verify` — Verify LifePass SSO token
 - `GET /pass/qr-payload/:userId` — Generate QR payload for mobile pass
 - `GET /pass/qr/:userId` — Generate QR code data URL for LifePass pass
+- `GET /portals/policy-matrix` — Read effective portal covenant policy matrix (API key protected)
+- `GET /portals/access-audit?limit=50` — Read recent portal access decisions (API key protected)
 - `GET /portals/commons/me` — Return verified portal identity (Bearer token)
 - `GET /portals/health/age-gated-services` — Silver+ route via portal policy
 - `GET /users/:userId/dashboard` — Return profile + trust score
@@ -64,6 +66,8 @@ $env:DEPLOY_GAS_STRATEGY='provider'; npm run deploy:sbt
 - Portal trust policy defaults:
 	- Bronze: `POST /portals/agri/requests`, `GET /portals/commons/me`
 	- Silver: `GET /portals/agri/requests`, `GET /portals/health/age-gated-services`
+- Override policy matrix with `LIFEPASS_PORTAL_POLICY_JSON` (JSON object keyed by covenant and policy key)
+- Audit retention size is controlled by `PORTAL_ACCESS_AUDIT_MAX_ROWS` (default 2000, min 200)
 
 ### Environment
 - `PG_CONNECTION_STRING` or `DATABASE_URL` for Postgres
@@ -81,6 +85,8 @@ $env:DEPLOY_GAS_STRATEGY='provider'; npm run deploy:sbt
 - `LIFEPASS_SSO_JWT_ISSUER` (default `lifepass-api`)
 - `LIFEPASS_SSO_DEFAULT_AUDIENCE` (default `zionstack-portals`)
 - `LIFEPASS_SSO_JWT_EXPIRES_IN` (default `15m`)
+- `LIFEPASS_PORTAL_POLICY_JSON` for covenant policy overrides (e.g. route trust thresholds)
+- `PORTAL_ACCESS_AUDIT_MAX_ROWS` for portal decision log retention
 
 ### Health & Startup Checklist
 - `GET /health` returns startup/env readiness checks.
