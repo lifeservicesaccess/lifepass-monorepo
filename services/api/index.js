@@ -363,7 +363,16 @@ app.post('/onboarding/signup',
         return res.status(400).json({ success: false, error: 'purposeStatement (or purpose) is required' });
       }
 
-      const trust = await trustScoreStore.updateTrustScore(userId, ONBOARDING_BRONZE_SCORE, 'onboarding-signup');
+      const trust = await trustScoreStore.applyTrustPolicy(
+        userId,
+        {
+          verificationStatus: 'pending',
+          verifierSubmissionsCount: 0,
+          hasMinted: false,
+          minBronzeScore: ONBOARDING_BRONZE_SCORE
+        },
+        'onboarding-signup-policy'
+      );
 
       const profile = {
         userId,
@@ -431,11 +440,28 @@ app.post('/onboarding/verifier-submission',
         verificationSourcesCount: updatedSubmissions.length
       });
 
+      const trust = await trustScoreStore.applyTrustPolicy(
+        userId,
+        {
+          verificationStatus: updated.verificationStatus || 'pending',
+          verifierSubmissionsCount: updatedSubmissions.length,
+          hasMinted: Boolean(updated.mintedTxHash),
+          minBronzeScore: ONBOARDING_BRONZE_SCORE
+        },
+        'verifier-submission-policy'
+      );
+
+      await profileDb.patchProfile(userId, {
+        trustScore: trust.score,
+        trustLevel: trust.level
+      });
+
       return res.status(201).json({
         success: true,
         submission,
         profile: updated,
-        verifierSubmissionsCount: updatedSubmissions.length
+        verifierSubmissionsCount: updatedSubmissions.length,
+        trust
       });
     } catch (err) {
       console.error('onboarding/verifier-submission error', err);
@@ -491,10 +517,21 @@ app.post('/onboarding/verify',
         ]
       });
 
-      let trust = await trustScoreStore.getTrustScore(userId);
-      if (status === 'approved') {
-        trust = await trustScoreStore.updateTrustScore(userId, Math.max(TRUST_SCORE_DEFAULT, trust.score), 'onboarding-approval');
-      }
+      const trust = await trustScoreStore.applyTrustPolicy(
+        userId,
+        {
+          verificationStatus: status,
+          verifierSubmissionsCount: Array.isArray(updated.verifierSubmissions) ? updated.verifierSubmissions.length : 0,
+          hasMinted: Boolean(updated.mintedTxHash),
+          minBronzeScore: ONBOARDING_BRONZE_SCORE
+        },
+        'onboarding-verify-policy'
+      );
+
+      await profileDb.patchProfile(userId, {
+        trustScore: trust.score,
+        trustLevel: trust.level
+      });
 
       return res.json({ success: true, profile: updated, trust });
     } catch (err) {
@@ -627,12 +664,29 @@ app.post('/flow/mint',
       // Mint SBT
       const result = await agent.handleMint(userId, mintOptions);
       if (result && result.status === 'submitted') {
-        await profileDb.patchProfile(userId, {
+        const updatedProfile = await profileDb.patchProfile(userId, {
           mintStatus: 'submitted',
           mintedTxHash: result.tx_hash || null,
           mintedSubmittedAt: new Date().toISOString()
         });
-        return res.json({ success: true, result, verifyResult });
+
+        const trust = await trustScoreStore.applyTrustPolicy(
+          userId,
+          {
+            verificationStatus: updatedProfile.verificationStatus || 'approved',
+            verifierSubmissionsCount: Array.isArray(updatedProfile.verifierSubmissions) ? updatedProfile.verifierSubmissions.length : 0,
+            hasMinted: true,
+            minBronzeScore: ONBOARDING_BRONZE_SCORE
+          },
+          'mint-submitted-policy'
+        );
+
+        await profileDb.patchProfile(userId, {
+          trustScore: trust.score,
+          trustLevel: trust.level
+        });
+
+        return res.json({ success: true, result, verifyResult, trust });
       }
       return res.status(400).json({ success: false, result, verifyResult });
     } catch (err) {
