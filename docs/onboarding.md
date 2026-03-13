@@ -7,14 +7,27 @@ The onboarding flow collects user identity metadata and verification documents, 
 ## API Endpoints
 
 - `POST /onboarding/signup`
-  - Input: `userId`, `legalName` (or legacy `name`), `covenantName` (optional), `purposeStatement` (or legacy `purpose`), `skills[]`/`coreSkills[]`, `callings[]`, `verificationDocs[]`
+  - Input: `userId`, `legalName` (or legacy `name`), `preferredCovenantName` (or `covenantName`), `purposeStatement` (or legacy `purpose`), `skills[]`/`coreSkills[]`, `callings[]`, `verificationDocs[]`, optional `biometricPhotoRef`, optional `biometricPhotoUrl`
   - Output: profile with `verificationStatus: pending` plus `trust` payload initialized to Bronze
+- `POST /onboarding/upload-url`
+  - Input: `userId`, `fileName`, optional `contentType`, optional `mediaType`
+  - Output: upload intent + persisted media reference
+- `GET /onboarding/media/:userId`
+  - Output: uploaded/reference media entries
 - `POST /onboarding/verify` (API key protected)
   - Input: `userId`, `status` (`pending|approved|rejected`), optional `reviewerId`, optional `reviewerNote`
   - Output: updated profile and trust score
 - `POST /onboarding/verifier-submission`
   - Input: `userId`, `verifierName`, `verifierType` (`church|school|co-op|employer|leader|other`), optional `relationship`, optional `endorsement`
   - Output: stored submission, submission count, and updated profile
+- `POST /verifications/add` (API key protected)
+  - Input: `userId`, `kind` (`endorsement|document|mutual`), optional `status`, optional verifier/document metadata
+  - Output: verification event + recalculated trust/status
+- `POST /verifications/revoke` (API key protected)
+  - Input: `userId`, `verificationId`, optional `reason`, optional `reviewerId`
+  - Output: revoked event + recalculated trust/status
+- `GET /verifications/:userId`
+  - Output: verification event list + summary counts for endorsements/docs/mutual links
 - `GET /users/:userId/dashboard`
   - Output: profile + trust score record
 
@@ -30,6 +43,13 @@ Levels:
 - `0-49`: Bronze
 - `50-79`: Silver
 - `80-100`: Gold
+
+Sprint 1 trust criteria:
+
+- Approved endorsements increase trust (capped)
+- Approved document checks increase trust (capped)
+- Mutual verifications increase trust (capped)
+- Any rejected document check caps trust and status as rejected/pending per policy
 
 ## Mint Gating
 

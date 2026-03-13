@@ -5,6 +5,9 @@ const profileDb = require('./tools/profileDb');
 const zkProof = require('./tools/zkProof');
 const walletTool = require('./tools/wallet');
 const trustScoreStore = require('./tools/trustScoreStore');
+const verificationStore = require('./tools/verificationStore');
+const storageTool = require('./tools/storage');
+const profileMediaStore = require('./tools/profileMediaStore');
 const vectorStore = require('./tools/vectorStore');
 const chatGuide = require('./tools/chatGuide');
 const { createPortalRouter } = require('./portals/router');
@@ -123,6 +126,52 @@ function toStringArray(value) {
     return value.split(',').map((item) => item.trim()).filter(Boolean);
   }
   return [];
+}
+
+function deriveProfileVerificationStatus(summary) {
+  if (summary.rejectedDocumentChecks > 0) return 'rejected';
+  if (summary.approvedDocumentChecks >= 1 && summary.approvedEndorsements >= 2) return 'approved';
+  return 'pending';
+}
+
+async function recomputeTrustFromProfile(userId, profile) {
+  const summary = await verificationStore.getVerificationSummary(userId);
+  const verificationStatus = deriveProfileVerificationStatus(summary);
+
+  const trust = await trustScoreStore.applyTrustPolicy(
+    userId,
+    {
+      verificationStatus,
+      endorsementsCount: summary.approvedEndorsements,
+      documentChecksCount: summary.approvedDocumentChecks,
+      mutualVerificationsCount: summary.approvedMutualVerifications,
+      rejectedDocumentChecks: summary.rejectedDocumentChecks,
+      verifierSubmissionsCount: Array.isArray(profile.verifierSubmissions) ? profile.verifierSubmissions.length : 0,
+      hasMinted: Boolean(profile.mintedTxHash),
+      minBronzeScore: ONBOARDING_BRONZE_SCORE
+    },
+    'verification-recompute-policy'
+  );
+
+  const updatedProfile = await profileDb.patchProfile(userId, {
+    verificationStatus,
+    verificationSummary: {
+      endorsementsApproved: summary.approvedEndorsements,
+      documentChecksApproved: summary.approvedDocumentChecks,
+      mutualVerificationsApproved: summary.approvedMutualVerifications,
+      documentChecksRejected: summary.rejectedDocumentChecks,
+      graphEdgesCount: summary.graphEdgesCount
+    },
+    trustScore: trust.score,
+    trustLevel: trust.level
+  });
+
+  return {
+    trust,
+    verificationStatus,
+    summary,
+    profile: updatedProfile
+  };
 }
 
 function parseEvmError(err) {
@@ -284,16 +333,26 @@ app.post('/sbt/mint', async (req, res) => {
     }
 
     if (userId) {
-      await profileDb.patchProfile(userId, {
+      const updatedProfile = await profileDb.patchProfile(userId, {
         walletAddress: to,
         mintedTokenId: tokenId,
         mintedTxHash: tx.hash,
         mintedAt: new Date().toISOString()
       });
-      const existingTrust = await trustScoreStore.getTrustScore(userId);
-      if (!existingTrust.updatedAt) {
-        await trustScoreStore.updateTrustScore(userId, TRUST_SCORE_DEFAULT, 'initial-mint');
-      }
+
+      await trustScoreStore.applyTrustPolicy(
+        userId,
+        {
+          verificationStatus: updatedProfile.verificationStatus || 'pending',
+          endorsementsCount: Array.isArray(updatedProfile.verifierSubmissions) ? updatedProfile.verifierSubmissions.length : 0,
+          documentChecksCount: (updatedProfile.verificationSummary && updatedProfile.verificationSummary.documentChecksApproved) || 0,
+          mutualVerificationsCount: (updatedProfile.verificationSummary && updatedProfile.verificationSummary.mutualVerificationsApproved) || 0,
+          rejectedDocumentChecks: (updatedProfile.verificationSummary && updatedProfile.verificationSummary.documentChecksRejected) || 0,
+          hasMinted: true,
+          minBronzeScore: ONBOARDING_BRONZE_SCORE
+        },
+        'direct-mint-policy'
+      );
     }
 
     res.json({ success: true, txHash: tx.hash });
@@ -324,12 +383,15 @@ app.post('/onboarding/signup',
   body('legalName').optional().isString(),
   body('name').optional().isString(),
   body('covenantName').optional().isString(),
+  body('preferredCovenantName').optional().isString(),
   body('purpose').optional().isString(),
   body('purposeStatement').optional().isString(),
   body('skills').optional(),
   body('coreSkills').optional(),
   body('callings').optional(),
   body('verificationDocs').optional().isArray(),
+  body('biometricPhotoRef').optional().isString(),
+  body('biometricPhotoUrl').optional().isString(),
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
@@ -340,12 +402,15 @@ app.post('/onboarding/signup',
         name,
         legalName,
         covenantName,
+        preferredCovenantName,
         purpose,
         purposeStatement,
         skills,
         coreSkills,
         callings,
         verificationDocs,
+        biometricPhotoRef,
+        biometricPhotoUrl,
         biometric
       } = req.body;
 
@@ -367,7 +432,10 @@ app.post('/onboarding/signup',
         userId,
         {
           verificationStatus: 'pending',
-          verifierSubmissionsCount: 0,
+          endorsementsCount: 0,
+          documentChecksCount: 0,
+          mutualVerificationsCount: 0,
+          rejectedDocumentChecks: 0,
           hasMinted: false,
           minBronzeScore: ONBOARDING_BRONZE_SCORE
         },
@@ -379,11 +447,16 @@ app.post('/onboarding/signup',
         name: resolvedLegalName,
         legalName: resolvedLegalName,
         covenantName: covenantName ? String(covenantName).trim() : '',
+        preferredCovenantName: preferredCovenantName
+          ? String(preferredCovenantName).trim()
+          : (covenantName ? String(covenantName).trim() : ''),
         purpose: resolvedPurpose,
         purposeStatement: resolvedPurpose,
         skills: resolvedSkills,
         coreSkills: resolvedSkills,
         callings: resolvedCallings,
+        biometricPhotoRef: biometricPhotoRef ? String(biometricPhotoRef).trim() : '',
+        biometricPhotoUrl: biometricPhotoUrl ? String(biometricPhotoUrl).trim() : '',
         biometric: biometric || {
           hasFaceScan: false,
           hasFingerprint: false,
@@ -411,6 +484,70 @@ app.post('/onboarding/signup',
   }
 );
 
+app.post('/onboarding/upload-url',
+  body('userId').isString().notEmpty(),
+  body('fileName').isString().notEmpty(),
+  body('contentType').optional().isString(),
+  body('mediaType').optional().isString(),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
+
+    try {
+      const { userId, fileName, contentType, mediaType } = req.body;
+      const profile = await profileDb.getProfile(userId);
+      if (!profile) return res.status(404).json({ success: false, error: 'Profile not found' });
+
+      const intent = await storageTool.createUploadIntent({
+        userId,
+        fileName,
+        contentType,
+        mediaType: mediaType || 'biometric-photo'
+      });
+
+      const mediaRecord = await profileMediaStore.addMediaRecord({
+        mediaId: intent.uploadId,
+        userId,
+        mediaType: mediaType || 'biometric-photo',
+        storageProvider: intent.provider,
+        bucket: intent.bucket,
+        objectKey: intent.objectKey,
+        publicUrl: intent.fileUrl,
+        metadata: {
+          fileName,
+          contentType: contentType || null,
+          uploadUrlIssued: Boolean(intent.uploadUrl)
+        }
+      });
+
+      await profileDb.patchProfile(userId, {
+        biometricPhotoRef: mediaRecord.objectKey || mediaRecord.mediaId,
+        biometricPhotoUrl: mediaRecord.publicUrl || '',
+        biometricMediaId: mediaRecord.mediaId
+      });
+
+      return res.status(201).json({
+        success: true,
+        upload: intent,
+        media: mediaRecord
+      });
+    } catch (err) {
+      console.error('onboarding/upload-url error', err);
+      return res.status(500).json({ success: false, error: 'Upload intent error' });
+    }
+  }
+);
+
+app.get('/onboarding/media/:userId', async (req, res) => {
+  try {
+    const media = await profileMediaStore.listMediaByUser(req.params.userId);
+    return res.json({ success: true, media });
+  } catch (err) {
+    console.error('onboarding/media list error', err);
+    return res.status(500).json({ success: false, error: 'Media lookup failed' });
+  }
+});
+
 app.post('/onboarding/verifier-submission',
   body('userId').isString().notEmpty(),
   body('verifierName').isString().notEmpty(),
@@ -435,33 +572,36 @@ app.post('/onboarding/verifier-submission',
       };
       const updatedSubmissions = [...existing, submission];
 
-      const updated = await profileDb.patchProfile(userId, {
+      await verificationStore.addVerificationEvent({
+        userId,
+        verifierName: submission.verifierName,
+        kind: 'endorsement',
+        status: 'approved',
+        note: submission.endorsement,
+        metadata: {
+          verifierType,
+          relationship: submission.relationship,
+          source: 'onboarding/verifier-submission'
+        }
+      });
+
+      await profileDb.patchProfile(userId, {
         verifierSubmissions: updatedSubmissions,
         verificationSourcesCount: updatedSubmissions.length
       });
 
-      const trust = await trustScoreStore.applyTrustPolicy(
-        userId,
-        {
-          verificationStatus: updated.verificationStatus || 'pending',
-          verifierSubmissionsCount: updatedSubmissions.length,
-          hasMinted: Boolean(updated.mintedTxHash),
-          minBronzeScore: ONBOARDING_BRONZE_SCORE
-        },
-        'verifier-submission-policy'
-      );
-
-      await profileDb.patchProfile(userId, {
-        trustScore: trust.score,
-        trustLevel: trust.level
+      const recomputed = await recomputeTrustFromProfile(userId, {
+        ...profile,
+        verifierSubmissions: updatedSubmissions
       });
 
       return res.status(201).json({
         success: true,
         submission,
-        profile: updated,
+        profile: recomputed.profile,
         verifierSubmissionsCount: updatedSubmissions.length,
-        trust
+        trust: recomputed.trust,
+        verificationSummary: recomputed.summary
       });
     } catch (err) {
       console.error('onboarding/verifier-submission error', err);
@@ -469,6 +609,122 @@ app.post('/onboarding/verifier-submission',
     }
   }
 );
+
+app.post('/verifications/add',
+  requireApiKey,
+  body('userId').isString().notEmpty(),
+  body('kind').isIn(['endorsement', 'document', 'mutual']),
+  body('status').optional().isIn(['pending', 'approved', 'rejected']),
+  body('verifierUserId').optional().isString(),
+  body('verifierName').optional().isString(),
+  body('documentType').optional().isIn(['passport', 'national-id', 'utility-bill', 'selfie-match', 'other']),
+  body('note').optional().isString(),
+  body('evidenceUrl').optional().isString(),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
+
+    try {
+      const {
+        userId,
+        kind,
+        status,
+        verifierUserId,
+        verifierName,
+        documentType,
+        note,
+        evidenceUrl
+      } = req.body;
+
+      const profile = await profileDb.getProfile(userId);
+      if (!profile) return res.status(404).json({ success: false, error: 'Profile not found' });
+
+      const event = await verificationStore.addVerificationEvent({
+        userId,
+        kind,
+        status: status || 'approved',
+        verifierUserId,
+        verifierName,
+        documentType,
+        note,
+        evidenceUrl,
+        metadata: {
+          source: 'verifications/add'
+        }
+      });
+
+      if (kind === 'mutual' && verifierUserId) {
+        await verificationStore.upsertTrustEdge({
+          edgeId: `${verifierUserId}->${userId}`,
+          sourceUserId: verifierUserId,
+          targetUserId: userId,
+          status: status || 'approved',
+          metadata: {
+            verificationId: event.verificationId
+          }
+        });
+      }
+
+      const recomputed = await recomputeTrustFromProfile(userId, profile);
+      return res.status(201).json({
+        success: true,
+        event,
+        trust: recomputed.trust,
+        verificationStatus: recomputed.verificationStatus,
+        verificationSummary: recomputed.summary
+      });
+    } catch (err) {
+      console.error('verifications/add error', err);
+      return res.status(500).json({ success: false, error: 'Verification add error' });
+    }
+  }
+);
+
+app.post('/verifications/revoke',
+  requireApiKey,
+  body('userId').isString().notEmpty(),
+  body('verificationId').isString().notEmpty(),
+  body('reason').optional().isString(),
+  body('reviewerId').optional().isString(),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
+
+    try {
+      const { userId, verificationId, reason, reviewerId } = req.body;
+      const profile = await profileDb.getProfile(userId);
+      if (!profile) return res.status(404).json({ success: false, error: 'Profile not found' });
+
+      const revoked = await verificationStore.revokeVerificationEvent(userId, verificationId, reason || '', reviewerId || '');
+      if (!revoked) return res.status(404).json({ success: false, error: 'Verification not found' });
+
+      const recomputed = await recomputeTrustFromProfile(userId, profile);
+      return res.json({
+        success: true,
+        revoked,
+        trust: recomputed.trust,
+        verificationStatus: recomputed.verificationStatus,
+        verificationSummary: recomputed.summary
+      });
+    } catch (err) {
+      console.error('verifications/revoke error', err);
+      return res.status(500).json({ success: false, error: 'Verification revoke error' });
+    }
+  }
+);
+
+app.get('/verifications/:userId', async (req, res) => {
+  try {
+    const events = await verificationStore.listVerificationEvents(req.params.userId, {
+      includeRevoked: req.query.includeRevoked === '1'
+    });
+    const summary = await verificationStore.getVerificationSummary(req.params.userId);
+    return res.json({ success: true, summary, events });
+  } catch (err) {
+    console.error('verifications list error', err);
+    return res.status(500).json({ success: false, error: 'Verification lookup failed' });
+  }
+});
 
 app.post('/onboarding/verify',
   requireApiKey,
@@ -489,8 +745,8 @@ app.post('/onboarding/verify',
       const sameStatus = normalizedCurrent === status;
       const allowedTransitions = {
         pending: ['approved', 'rejected'],
-        approved: [],
-        rejected: []
+        approved: ['rejected'],
+        rejected: ['approved']
       };
 
       if (!sameStatus && !allowedTransitions[normalizedCurrent].includes(status)) {
@@ -500,7 +756,7 @@ app.post('/onboarding/verify',
         });
       }
 
-      const updated = await profileDb.patchProfile(userId, {
+      await profileDb.patchProfile(userId, {
         verificationStatus: status,
         verificationReviewedAt: new Date().toISOString(),
         verificationReviewerId: reviewerId || null,
@@ -517,23 +773,28 @@ app.post('/onboarding/verify',
         ]
       });
 
+      const summary = await verificationStore.getVerificationSummary(userId);
       const trust = await trustScoreStore.applyTrustPolicy(
         userId,
         {
           verificationStatus: status,
-          verifierSubmissionsCount: Array.isArray(updated.verifierSubmissions) ? updated.verifierSubmissions.length : 0,
-          hasMinted: Boolean(updated.mintedTxHash),
+          endorsementsCount: summary.approvedEndorsements,
+          documentChecksCount: summary.approvedDocumentChecks,
+          mutualVerificationsCount: summary.approvedMutualVerifications,
+          rejectedDocumentChecks: summary.rejectedDocumentChecks,
+          verifierSubmissionsCount: Array.isArray(profile.verifierSubmissions) ? profile.verifierSubmissions.length : 0,
+          hasMinted: Boolean(profile.mintedTxHash),
           minBronzeScore: ONBOARDING_BRONZE_SCORE
         },
         'onboarding-verify-policy'
       );
 
-      await profileDb.patchProfile(userId, {
+      const updated = await profileDb.patchProfile(userId, {
         trustScore: trust.score,
         trustLevel: trust.level
       });
 
-      return res.json({ success: true, profile: updated, trust });
+      return res.json({ success: true, profile: updated, trust, verificationSummary: summary });
     } catch (err) {
       console.error('onboarding/verify error', err);
       return res.status(500).json({ success: false, error: 'Verification workflow error' });
@@ -670,10 +931,16 @@ app.post('/flow/mint',
           mintedSubmittedAt: new Date().toISOString()
         });
 
+        const summary = await verificationStore.getVerificationSummary(userId);
+
         const trust = await trustScoreStore.applyTrustPolicy(
           userId,
           {
             verificationStatus: updatedProfile.verificationStatus || 'approved',
+            endorsementsCount: summary.approvedEndorsements,
+            documentChecksCount: summary.approvedDocumentChecks,
+            mutualVerificationsCount: summary.approvedMutualVerifications,
+            rejectedDocumentChecks: summary.rejectedDocumentChecks,
             verifierSubmissionsCount: Array.isArray(updatedProfile.verifierSubmissions) ? updatedProfile.verifierSubmissions.length : 0,
             hasMinted: true,
             minBronzeScore: ONBOARDING_BRONZE_SCORE
