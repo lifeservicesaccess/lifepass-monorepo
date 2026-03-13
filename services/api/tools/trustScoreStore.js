@@ -25,6 +25,8 @@ async function getTrustScore(userId) {
     score: 0,
     level: 'Bronze',
     reason: 'default',
+    reasonCodes: ['default'],
+    policyVersion: 'v1',
     updatedAt: null
   };
 }
@@ -35,7 +37,47 @@ function inferLevel(score) {
   return 'Bronze';
 }
 
-async function updateTrustScore(userId, score, reason = 'manual') {
+function evaluateTrustPolicy(input = {}) {
+  const verificationStatus = String(input.verificationStatus || 'pending');
+  const verifierSubmissionsCount = Math.max(0, Number(input.verifierSubmissionsCount) || 0);
+  const hasMinted = Boolean(input.hasMinted);
+  const minBronzeScore = Math.max(0, Math.min(49, Number(input.minBronzeScore) || 20));
+
+  let score = minBronzeScore;
+  const reasonCodes = [];
+
+  if (verificationStatus === 'approved') {
+    score = Math.max(score, 60);
+    reasonCodes.push('verification_approved');
+  } else if (verificationStatus === 'rejected') {
+    score = Math.min(score, 25);
+    reasonCodes.push('verification_rejected');
+  } else {
+    reasonCodes.push('verification_pending');
+  }
+
+  if (verifierSubmissionsCount > 0) {
+    const verifierBoost = Math.min(verifierSubmissionsCount, 3) * 5;
+    score += verifierBoost;
+    reasonCodes.push(`verifier_sources_${Math.min(verifierSubmissionsCount, 3)}`);
+  }
+
+  if (hasMinted) {
+    score += 10;
+    reasonCodes.push('mint_submitted');
+  }
+
+  score = Math.max(0, Math.min(100, score));
+
+  return {
+    score,
+    level: inferLevel(score),
+    reasonCodes,
+    policyVersion: 'v1'
+  };
+}
+
+async function updateTrustScore(userId, score, reason = 'manual', meta = {}) {
   const normalized = Math.max(0, Math.min(100, Number(score) || 0));
   const all = await readTrustScores();
   const next = {
@@ -43,6 +85,8 @@ async function updateTrustScore(userId, score, reason = 'manual') {
     score: normalized,
     level: inferLevel(normalized),
     reason,
+    reasonCodes: Array.isArray(meta.reasonCodes) ? meta.reasonCodes : [reason],
+    policyVersion: meta.policyVersion || 'v1',
     updatedAt: new Date().toISOString()
   };
   all[userId] = next;
@@ -50,8 +94,18 @@ async function updateTrustScore(userId, score, reason = 'manual') {
   return next;
 }
 
+async function applyTrustPolicy(userId, policyInput = {}, reason = 'policy-evaluation') {
+  const policy = evaluateTrustPolicy(policyInput);
+  return updateTrustScore(userId, policy.score, reason, {
+    reasonCodes: policy.reasonCodes,
+    policyVersion: policy.policyVersion
+  });
+}
+
 module.exports = {
   getTrustScore,
   updateTrustScore,
+  applyTrustPolicy,
+  evaluateTrustPolicy,
   inferLevel
 };

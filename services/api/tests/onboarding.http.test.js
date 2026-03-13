@@ -96,6 +96,8 @@ test('signup + verify + trust lookup works', async () => {
   assert.ok(signup.body.trust);
   assert.equal(signup.body.trust.level, 'Bronze');
   assert.ok(signup.body.trust.score >= 0 && signup.body.trust.score <= 49);
+  assert.ok(Array.isArray(signup.body.trust.reasonCodes));
+  assert.ok(signup.body.trust.reasonCodes.includes('verification_pending'));
 
   const verify = await requestJson(
     '/onboarding/verify',
@@ -106,11 +108,15 @@ test('signup + verify + trust lookup works', async () => {
   assert.equal(verify.status, 200);
   assert.equal(verify.body.success, true);
   assert.equal(verify.body.profile.verificationStatus, 'approved');
+  assert.ok(Array.isArray(verify.body.trust.reasonCodes));
+  assert.ok(verify.body.trust.reasonCodes.includes('verification_approved'));
 
   const trust = await requestJson(`/trust/${userId}`, 'GET');
   assert.equal(trust.status, 200);
   assert.equal(trust.body.success, true);
   assert.equal(typeof trust.body.trust.score, 'number');
+  assert.ok(Array.isArray(trust.body.trust.reasonCodes));
+  assert.ok(trust.body.trust.reasonCodes.includes('verification_approved'));
 });
 
 test('signup normalizes new M1 fields and supports verifier submission', async () => {
@@ -145,6 +151,9 @@ test('signup normalizes new M1 fields and supports verifier submission', async (
   assert.equal(verifier.body.success, true);
   assert.equal(verifier.body.verifierSubmissionsCount, 1);
   assert.equal(verifier.body.submission.verifierType, 'church');
+  assert.ok(verifier.body.trust);
+  assert.ok(Array.isArray(verifier.body.trust.reasonCodes));
+  assert.ok(verifier.body.trust.reasonCodes.includes('verifier_sources_1'));
 });
 
 test('verifier submission validates input and profile existence', async () => {
