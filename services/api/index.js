@@ -1,4 +1,5 @@
 const express = require('express');
+const crypto = require('crypto');
 const { ethers } = require('ethers');
 const onchainVerifier = require('./tools/onchainVerifier');
 const profileDb = require('./tools/profileDb');
@@ -15,6 +16,7 @@ const portalAccessAuditStore = require('./tools/portalAccessAuditStore');
 const portalPolicyStore = require('./tools/portalPolicyStore');
 const policyAdminAuditStore = require('./tools/policyAdminAuditStore');
 const policySnapshotStore = require('./tools/policySnapshotStore');
+const policyApprovalStore = require('./tools/policyApprovalStore');
 const vectorStore = require('./tools/vectorStore');
 const chatGuide = require('./tools/chatGuide');
 const { createPortalRouter } = require('./portals/router');
@@ -80,6 +82,7 @@ function startupChecklist() {
   const hasPk = Boolean(PRIVATE_KEY);
   const hasSbtAddress = Boolean(SBT_CONTRACT_ADDRESS);
   const requireAgeVerifier = process.env.REQUIRE_AGE_VERIFIER === '1';
+  const policyPreconditions = getPolicyExecutionPreconditions();
   const blockchainReady = hasRpc && hasPk && hasSbtAddress;
   const hasCorsAllowlist = CORS_ALLOW_ALL || CORS_ALLOWED_ORIGINS.length > 0;
 
@@ -131,6 +134,15 @@ function startupChecklist() {
       check: 'LIFEPASS_SSO_JWT_SECRET configured',
       status: ssoAuth.getSsoConfig().configured ? 'pass' : 'warn',
       detail: ssoAuth.getSsoConfig().configured ? 'SSO token endpoints enabled' : 'not set; /auth/sso/token and /auth/sso/verify return 503'
+    },
+    {
+      check: 'POLICY_TWO_PERSON_REQUIRED readiness',
+      status: policyPreconditions.twoPerson
+        ? (policyPreconditions.approverCount >= policyPreconditions.requiredApprovals ? 'pass' : 'fail')
+        : 'warn',
+      detail: policyPreconditions.twoPerson
+        ? `enabled; ${policyPreconditions.approverCount} approver key(s) configured (required ${policyPreconditions.requiredApprovals})`
+        : 'disabled; direct policy apply/restore allowed for policy admin key'
     }
   ];
 
@@ -312,6 +324,181 @@ function summarizeDenyAlerts(events, threshold, windowMinutes) {
   }
 
   return alerts.sort((a, b) => b.denyCount - a.denyCount);
+}
+
+function stableStringify(value) {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableStringify(item)).join(',')}]`;
+  }
+  if (value && typeof value === 'object') {
+    const keys = Object.keys(value).sort();
+    return `{${keys.map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function sha256Hex(value) {
+  return crypto.createHash('sha256').update(String(value || '')).digest('hex');
+}
+
+function createApprovalMessage(proposalId, action, payloadHash) {
+  return `${proposalId}:${action}:${payloadHash}`;
+}
+
+function parsePolicyApprovalKeyMap() {
+  const raw = process.env.POLICY_APPROVAL_SIGNING_KEYS_JSON || '';
+  if (!raw.trim()) return {};
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    const out = {};
+    for (const [id, secret] of Object.entries(parsed)) {
+      const key = String(id || '').trim();
+      const val = String(secret || '').trim();
+      if (!key || !val) continue;
+      out[key] = val;
+    }
+    return out;
+  } catch (_err) {
+    return {};
+  }
+}
+
+function isTwoPersonPolicyEnabled() {
+  return process.env.POLICY_TWO_PERSON_REQUIRED === '1';
+}
+
+function requiredPolicyApprovals() {
+  return Math.max(2, Number(process.env.POLICY_REQUIRED_APPROVALS) || 2);
+}
+
+function verifyApproverSignature(proposal, approverId, signature) {
+  const keyMap = parsePolicyApprovalKeyMap();
+  const secret = keyMap[approverId];
+  if (!secret) return false;
+
+  const message = createApprovalMessage(proposal.id, proposal.action, proposal.payloadHash);
+  const expected = crypto.createHmac('sha256', secret).update(message).digest('hex');
+  const a = Buffer.from(String(signature || ''), 'utf8');
+  const b = Buffer.from(expected, 'utf8');
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
+
+function getPolicyExecutionPreconditions() {
+  const twoPerson = isTwoPersonPolicyEnabled();
+  const approvals = parsePolicyApprovalKeyMap();
+  const approverCount = Object.keys(approvals).length;
+  return {
+    twoPerson,
+    approverCount,
+    requiredApprovals: requiredPolicyApprovals()
+  };
+}
+
+async function executePolicyMatrixUpdate({ actor, reason, replace, matrix }) {
+  const incoming = portalPolicyStore.normalizePolicyMatrix(matrix || {});
+  const previousOverrides = portalPolicyStore.readPolicyOverrideMatrixSync();
+  const nextOverrides = replace
+    ? incoming
+    : portalPolicyStore.mergePolicyLayers(previousOverrides, incoming);
+  const beforeMatrix = readPolicyMatrix();
+
+  await portalPolicyStore.writePolicyOverrideMatrix(nextOverrides);
+  const afterMatrix = readPolicyMatrix();
+  const changes = buildPolicyDiff(beforeMatrix, afterMatrix);
+
+  const snapshot = await policySnapshotStore.appendPolicySnapshot({
+    id: `${Date.now()}-${Math.floor(Math.random() * 1e6)}`,
+    at: new Date().toISOString(),
+    actor,
+    reason,
+    replace,
+    overrides: nextOverrides,
+    changes
+  });
+
+  await policyAdminAuditStore.appendPolicyAdminAuditEvent({
+    at: new Date().toISOString(),
+    actor,
+    action: 'policy_matrix_update',
+    reason,
+    replace,
+    snapshotId: snapshot.id,
+    changedCount: changes.length,
+    changedCovenants: Object.keys(incoming),
+    changedPolicyKeys: Object.fromEntries(
+      Object.entries(incoming).map(([covenant, rules]) => [covenant, Object.keys(rules || {})])
+    )
+  });
+
+  return {
+    snapshotId: snapshot.id,
+    changes,
+    matrix: afterMatrix,
+    overrides: nextOverrides
+  };
+}
+
+async function executePolicySnapshotRestore({ actor, reason, snapshotId }) {
+  const snapshot = await policySnapshotStore.findPolicySnapshot(snapshotId);
+  if (!snapshot) {
+    const err = new Error('Snapshot not found');
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const beforeMatrix = readPolicyMatrix();
+  await portalPolicyStore.writePolicyOverrideMatrix(snapshot.overrides || {});
+  const afterMatrix = readPolicyMatrix();
+  const changes = buildPolicyDiff(beforeMatrix, afterMatrix);
+
+  await policyAdminAuditStore.appendPolicyAdminAuditEvent({
+    at: new Date().toISOString(),
+    actor,
+    action: 'policy_matrix_restore',
+    reason,
+    snapshotId,
+    changedCount: changes.length
+  });
+
+  return {
+    snapshotId,
+    changes,
+    matrix: afterMatrix,
+    overrides: snapshot.overrides || {}
+  };
+}
+
+async function createPendingPolicyProposal({ actor, action, reason, payload }) {
+  const normalizedPayload = payload || {};
+  const payloadHash = sha256Hex(stableStringify(normalizedPayload));
+  const proposal = {
+    id: `proposal-${Date.now()}-${Math.floor(Math.random() * 1e6)}`,
+    at: new Date().toISOString(),
+    actor,
+    action,
+    reason: reason || '',
+    payload: normalizedPayload,
+    payloadHash,
+    status: 'pending',
+    requiredApprovals: requiredPolicyApprovals(),
+    approvals: []
+  };
+
+  await policyApprovalStore.appendPolicyApproval(proposal);
+  await policyAdminAuditStore.appendPolicyAdminAuditEvent({
+    at: new Date().toISOString(),
+    actor,
+    action: 'policy_change_proposed',
+    proposalId: proposal.id,
+    proposalAction: action,
+    reason: proposal.reason,
+    requiredApprovals: proposal.requiredApprovals
+  });
+
+  return proposal;
 }
 
 // Production CORS allowlist: set CORS_ALLOWED_ORIGINS="https://app.example,https://preview.example"
@@ -1098,47 +1285,41 @@ app.post('/portals/policy-matrix',
       const replace = Boolean(req.body.replace);
 
       const incoming = portalPolicyStore.normalizePolicyMatrix(req.body.matrix || {});
-      const previousOverrides = portalPolicyStore.readPolicyOverrideMatrixSync();
-      const nextOverrides = replace
-        ? incoming
-        : portalPolicyStore.mergePolicyLayers(previousOverrides, incoming);
-      const beforeMatrix = readPolicyMatrix();
 
-      await portalPolicyStore.writePolicyOverrideMatrix(nextOverrides);
-      const afterMatrix = readPolicyMatrix();
-      const changes = buildPolicyDiff(beforeMatrix, afterMatrix);
+      if (isTwoPersonPolicyEnabled()) {
+        const proposal = await createPendingPolicyProposal({
+          actor,
+          action: 'policy_matrix_update',
+          reason,
+          payload: {
+            replace,
+            matrix: incoming
+          }
+        });
 
-      const snapshot = await policySnapshotStore.appendPolicySnapshot({
-        id: `${Date.now()}-${Math.floor(Math.random() * 1e6)}`,
-        at: new Date().toISOString(),
+        return res.status(202).json({
+          success: true,
+          message: 'Policy change proposal created; awaiting signed approvals',
+          proposalId: proposal.id,
+          requiredApprovals: proposal.requiredApprovals,
+          approvals: proposal.approvals.length
+        });
+      }
+
+      const execution = await executePolicyMatrixUpdate({
         actor,
         reason,
         replace,
-        overrides: nextOverrides,
-        changes
-      });
-
-      await policyAdminAuditStore.appendPolicyAdminAuditEvent({
-        at: new Date().toISOString(),
-        actor,
-        action: 'policy_matrix_update',
-        reason,
-        replace,
-        snapshotId: snapshot.id,
-        changedCount: changes.length,
-        changedCovenants: Object.keys(incoming),
-        changedPolicyKeys: Object.fromEntries(
-          Object.entries(incoming).map(([covenant, rules]) => [covenant, Object.keys(rules || {})])
-        )
+        matrix: incoming
       });
 
       return res.json({
         success: true,
         message: 'Portal policy matrix updated',
-        snapshotId: snapshot.id,
-        changes,
-        matrix: afterMatrix,
-        overrides: nextOverrides
+        snapshotId: execution.snapshotId,
+        changes: execution.changes,
+        matrix: execution.matrix,
+        overrides: execution.overrides
       });
     } catch (err) {
       if (String(err.message || '').includes('matrix.')) {
@@ -1217,34 +1398,188 @@ app.post('/portals/policy-snapshots/:snapshotId/restore',
       const snapshotId = req.params.snapshotId;
       const actor = req.header('x-admin-actor') || 'unknown';
       const reason = (req.body.reason || '').trim();
-      const snapshot = await policySnapshotStore.findPolicySnapshot(snapshotId);
-      if (!snapshot) return res.status(404).json({ success: false, error: 'Snapshot not found' });
 
-      const beforeMatrix = readPolicyMatrix();
-      await portalPolicyStore.writePolicyOverrideMatrix(snapshot.overrides || {});
-      const afterMatrix = readPolicyMatrix();
-      const changes = buildPolicyDiff(beforeMatrix, afterMatrix);
+      if (isTwoPersonPolicyEnabled()) {
+        const proposal = await createPendingPolicyProposal({
+          actor,
+          action: 'policy_matrix_restore',
+          reason,
+          payload: { snapshotId }
+        });
 
-      await policyAdminAuditStore.appendPolicyAdminAuditEvent({
-        at: new Date().toISOString(),
+        return res.status(202).json({
+          success: true,
+          message: 'Policy restore proposal created; awaiting signed approvals',
+          proposalId: proposal.id,
+          requiredApprovals: proposal.requiredApprovals,
+          approvals: proposal.approvals.length
+        });
+      }
+
+      const execution = await executePolicySnapshotRestore({
         actor,
-        action: 'policy_matrix_restore',
         reason,
-        snapshotId,
-        changedCount: changes.length
+        snapshotId
       });
 
       return res.json({
         success: true,
         message: 'Policy snapshot restored',
-        snapshotId,
-        changes,
-        matrix: afterMatrix,
-        overrides: snapshot.overrides || {}
+        snapshotId: execution.snapshotId,
+        changes: execution.changes,
+        matrix: execution.matrix,
+        overrides: execution.overrides
       });
     } catch (err) {
+      if (err.statusCode === 404) {
+        return res.status(404).json({ success: false, error: 'Snapshot not found' });
+      }
       console.error('portals/policy-snapshots restore error', err);
       return res.status(500).json({ success: false, error: 'Failed to restore policy snapshot' });
+    }
+  }
+);
+
+app.get('/portals/policy-approvals', requireApiKey, requirePolicyAdminKey, async (req, res) => {
+  try {
+    const limitRaw = Number(req.query.limit || 50);
+    const limit = Math.max(1, Math.min(500, Number.isFinite(limitRaw) ? limitRaw : 50));
+    const status = req.query.status ? String(req.query.status).toLowerCase() : '';
+    const proposals = await policyApprovalStore.readPolicyApprovals();
+    const filtered = proposals.filter((item) => {
+      if (!status) return true;
+      return String(item.status || '').toLowerCase() === status;
+    });
+    const sliced = filtered.slice(-limit);
+    return res.json({ success: true, count: sliced.length, proposals: sliced });
+  } catch (err) {
+    console.error('portals/policy-approvals error', err);
+    return res.status(500).json({ success: false, error: 'Failed to read policy approval proposals' });
+  }
+});
+
+app.get('/portals/policy-approvals/:proposalId', requireApiKey, requirePolicyAdminKey, async (req, res) => {
+  try {
+    const proposal = await policyApprovalStore.findPolicyApprovalById(req.params.proposalId);
+    if (!proposal) return res.status(404).json({ success: false, error: 'Proposal not found' });
+    return res.json({ success: true, proposal });
+  } catch (err) {
+    console.error('portals/policy-approvals/:proposalId error', err);
+    return res.status(500).json({ success: false, error: 'Failed to read policy approval proposal' });
+  }
+});
+
+app.post('/portals/policy-approvals/:proposalId/approve',
+  requireApiKey,
+  requirePolicyAdminKey,
+  body('approverId').isString().notEmpty(),
+  body('signature').isString().notEmpty(),
+  body('note').optional().isString(),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
+
+    try {
+      const proposalId = req.params.proposalId;
+      const approverId = String(req.body.approverId || '').trim();
+      const signature = String(req.body.signature || '').trim();
+      const note = (req.body.note || '').trim();
+
+      const proposal = await policyApprovalStore.findPolicyApprovalById(proposalId);
+      if (!proposal) return res.status(404).json({ success: false, error: 'Proposal not found' });
+      if (proposal.status !== 'pending') {
+        return res.status(409).json({ success: false, error: 'Proposal is not pending', status: proposal.status });
+      }
+      if (!verifyApproverSignature(proposal, approverId, signature)) {
+        return res.status(403).json({ success: false, error: 'Invalid approval signature' });
+      }
+      if (proposal.approvals.some((item) => item.approverId === approverId)) {
+        return res.status(409).json({ success: false, error: 'Approver has already approved this proposal' });
+      }
+
+      const updated = await policyApprovalStore.updatePolicyApproval(proposalId, (current) => ({
+        ...current,
+        approvals: [
+          ...(Array.isArray(current.approvals) ? current.approvals : []),
+          {
+            approverId,
+            at: new Date().toISOString(),
+            note
+          }
+        ]
+      }));
+
+      await policyAdminAuditStore.appendPolicyAdminAuditEvent({
+        at: new Date().toISOString(),
+        actor: approverId,
+        action: 'policy_change_approved',
+        proposalId,
+        proposalAction: updated.action,
+        approvals: updated.approvals.length,
+        requiredApprovals: updated.requiredApprovals
+      });
+
+      if (updated.approvals.length < updated.requiredApprovals) {
+        return res.status(202).json({
+          success: true,
+          message: 'Approval recorded; awaiting additional approvals',
+          proposalId,
+          approvals: updated.approvals.length,
+          requiredApprovals: updated.requiredApprovals,
+          status: 'pending'
+        });
+      }
+
+      let execution;
+      if (updated.action === 'policy_matrix_update') {
+        execution = await executePolicyMatrixUpdate({
+          actor: updated.actor || approverId,
+          reason: updated.reason || '',
+          replace: Boolean(updated.payload && updated.payload.replace),
+          matrix: (updated.payload && updated.payload.matrix) || {}
+        });
+      } else if (updated.action === 'policy_matrix_restore') {
+        execution = await executePolicySnapshotRestore({
+          actor: updated.actor || approverId,
+          reason: updated.reason || '',
+          snapshotId: updated.payload && updated.payload.snapshotId
+        });
+      } else {
+        return res.status(400).json({ success: false, error: 'Unsupported proposal action' });
+      }
+
+      await policyApprovalStore.updatePolicyApproval(proposalId, (current) => ({
+        ...current,
+        status: 'executed',
+        executedAt: new Date().toISOString(),
+        execution
+      }));
+
+      await policyAdminAuditStore.appendPolicyAdminAuditEvent({
+        at: new Date().toISOString(),
+        actor: approverId,
+        action: 'policy_change_executed',
+        proposalId,
+        proposalAction: updated.action,
+        approvals: updated.approvals.length,
+        requiredApprovals: updated.requiredApprovals
+      });
+
+      return res.json({
+        success: true,
+        message: 'Proposal executed after reaching approval threshold',
+        proposalId,
+        approvals: updated.approvals.length,
+        requiredApprovals: updated.requiredApprovals,
+        status: 'executed',
+        execution
+      });
+    } catch (err) {
+      if (err.statusCode === 404) {
+        return res.status(404).json({ success: false, error: 'Snapshot not found' });
+      }
+      console.error('portals/policy-approvals/:proposalId/approve error', err);
+      return res.status(500).json({ success: false, error: 'Failed to approve policy change proposal' });
     }
   }
 );

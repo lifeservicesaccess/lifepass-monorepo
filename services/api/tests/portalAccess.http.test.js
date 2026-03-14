@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
+const crypto = require('node:crypto');
 const { spawn } = require('node:child_process');
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -14,6 +15,7 @@ const AUDIT_FILE = path.join(API_CWD, '..', 'data', 'portal-access-audit.json');
 const POLICY_OVERRIDE_FILE = path.join(API_CWD, '..', 'data', 'portal-policy-overrides.json');
 const POLICY_ADMIN_AUDIT_FILE = path.join(API_CWD, '..', 'data', 'portal-policy-admin-audit.json');
 const POLICY_SNAPSHOT_FILE = path.join(API_CWD, '..', 'data', 'portal-policy-snapshots.json');
+const POLICY_APPROVAL_FILE = path.join(API_CWD, '..', 'data', 'portal-policy-approvals.json');
 
 function requestJson(path, method = 'GET', payload = null, headers = {}, baseUrl = API_BASE) {
   return new Promise((resolve, reject) => {
@@ -79,6 +81,23 @@ function requestRaw(path, method = 'GET', payload = null, headers = {}, baseUrl 
     if (body) req.write(body);
     req.end();
   });
+}
+
+async function waitForAuditQuery(auditPath, minEvents = 1, attempts = 20, delayMs = 25) {
+  let response = null;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    response = await requestJson(auditPath, 'GET', null, { 'x-api-key': API_KEY });
+    if (
+      response.status === 200
+      && response.body?.success === true
+      && Array.isArray(response.body.events)
+      && response.body.events.length >= minEvents
+    ) {
+      return response;
+    }
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+  return response;
 }
 
 function startApiServer(port = API_PORT, extraEnv = {}) {
@@ -167,6 +186,7 @@ test.before(async () => {
   await fs.writeFile(POLICY_OVERRIDE_FILE, '{}', 'utf8');
   await fs.writeFile(POLICY_ADMIN_AUDIT_FILE, '[]', 'utf8');
   await fs.writeFile(POLICY_SNAPSHOT_FILE, '[]', 'utf8');
+  await fs.writeFile(POLICY_APPROVAL_FILE, '[]', 'utf8');
   server = await startApiServer();
 });
 
@@ -245,7 +265,7 @@ test('access decisions are recorded in portal audit log', async () => {
   const deny = await requestJson('/portals/agri/requests', 'GET', null);
   assert.equal(deny.status, 401);
 
-  const audit = await requestJson('/portals/access-audit?limit=20', 'GET', null, { 'x-api-key': API_KEY });
+  const audit = await waitForAuditQuery('/portals/access-audit?limit=20', 2);
   assert.equal(audit.status, 200);
   assert.equal(audit.body.success, true);
   assert.ok(Array.isArray(audit.body.events));
@@ -269,9 +289,7 @@ test('access audit supports filtering by decision and covenant', async () => {
   const deny = await requestJson('/portals/agri/requests', 'GET', null);
   assert.equal(deny.status, 401);
 
-  const filtered = await requestJson('/portals/access-audit?decision=deny&covenant=agri&limit=20', 'GET', null, {
-    'x-api-key': API_KEY
-  });
+  const filtered = await waitForAuditQuery('/portals/access-audit?decision=deny&covenant=agri&limit=20', 1);
   assert.equal(filtered.status, 200);
   assert.equal(filtered.body.success, true);
   assert.ok(Array.isArray(filtered.body.events));
@@ -494,12 +512,20 @@ test('policy snapshots can be listed and restored', async () => {
 });
 
 test('deny spike alerts summarize covenant-level thresholds', async () => {
-  await requestJson('/portals/agri/requests', 'GET', null);
-  await requestJson('/portals/agri/requests', 'GET', null);
+  const userId = `portal-deny-${Date.now()}`;
+  await setTrust(userId, 35);
+  const token = await issueTokenForUser(userId);
 
-  const denyAudit = await requestJson('/portals/access-audit?decision=deny&covenant=agri&limit=200', 'GET', null, {
-    'x-api-key': API_KEY
+  const denyOne = await requestJson('/portals/agri/requests', 'GET', null, {
+    Authorization: `Bearer ${token}`
   });
+  const denyTwo = await requestJson('/portals/agri/requests', 'GET', null, {
+    Authorization: `Bearer ${token}`
+  });
+  assert.equal(denyOne.status, 403);
+  assert.equal(denyTwo.status, 403);
+
+  const denyAudit = await waitForAuditQuery('/portals/access-audit?decision=deny&covenant=agri&limit=200', 1);
   assert.equal(denyAudit.status, 200);
   assert.ok(Array.isArray(denyAudit.body.events));
   assert.ok(denyAudit.body.events.length >= 1);
@@ -516,4 +542,91 @@ test('deny spike alerts summarize covenant-level thresholds', async () => {
   const agri = alerts.body.alerts.find((item) => item.covenant === 'agri');
   assert.ok(Boolean(agri));
   assert.ok(agri.denyCount >= 1);
+});
+
+function signProposalApproval(proposal, secret) {
+  const message = `${proposal.id}:${proposal.action}:${proposal.payloadHash}`;
+  return crypto.createHmac('sha256', secret).update(message).digest('hex');
+}
+
+test('two-person rule requires two signed approvals before policy update executes', async () => {
+  const port = 3020;
+  const base = `http://127.0.0.1:${port}`;
+  const keyMap = {
+    alice: 'alice-secret',
+    bob: 'bob-secret'
+  };
+
+  const twoPersonServer = await startApiServer(port, {
+    POLICY_TWO_PERSON_REQUIRED: '1',
+    POLICY_REQUIRED_APPROVALS: '2',
+    POLICY_APPROVAL_SIGNING_KEYS_JSON: JSON.stringify(keyMap)
+  });
+
+  try {
+    const userId = `portal-2p-${Date.now()}`;
+    await setTrustAt(base, userId, 35);
+    const token = await issueTokenForUserAt(base, userId);
+
+    const before = await requestJson('/portals/agri/requests', 'GET', null, {
+      Authorization: `Bearer ${token}`
+    }, base);
+    assert.equal(before.status, 403);
+
+    const proposed = await requestJson('/portals/policy-matrix', 'POST', {
+      matrix: { agri: { listRequests: { minTrustLevel: 'bronze' } } },
+      reason: 'two-person update'
+    }, {
+      'x-api-key': API_KEY,
+      'x-policy-admin-key': POLICY_ADMIN_KEY,
+      'x-admin-actor': 'lead-admin'
+    }, base);
+
+    assert.equal(proposed.status, 202);
+    assert.equal(proposed.body.success, true);
+    const proposalId = proposed.body.proposalId;
+    assert.ok(Boolean(proposalId));
+
+    const detail = await requestJson(`/portals/policy-approvals/${proposalId}`, 'GET', null, {
+      'x-api-key': API_KEY,
+      'x-policy-admin-key': POLICY_ADMIN_KEY
+    }, base);
+    assert.equal(detail.status, 200);
+    const proposal = detail.body.proposal;
+
+    const sigAlice = signProposalApproval(proposal, keyMap.alice);
+    const firstApprove = await requestJson(`/portals/policy-approvals/${proposalId}/approve`, 'POST', {
+      approverId: 'alice',
+      signature: sigAlice
+    }, {
+      'x-api-key': API_KEY,
+      'x-policy-admin-key': POLICY_ADMIN_KEY
+    }, base);
+    assert.equal(firstApprove.status, 202);
+    assert.equal(firstApprove.body.status, 'pending');
+
+    const mid = await requestJson('/portals/agri/requests', 'GET', null, {
+      Authorization: `Bearer ${token}`
+    }, base);
+    assert.equal(mid.status, 403);
+
+    const sigBob = signProposalApproval(proposal, keyMap.bob);
+    const secondApprove = await requestJson(`/portals/policy-approvals/${proposalId}/approve`, 'POST', {
+      approverId: 'bob',
+      signature: sigBob
+    }, {
+      'x-api-key': API_KEY,
+      'x-policy-admin-key': POLICY_ADMIN_KEY
+    }, base);
+
+    assert.equal(secondApprove.status, 200);
+    assert.equal(secondApprove.body.status, 'executed');
+
+    const after = await requestJson('/portals/agri/requests', 'GET', null, {
+      Authorization: `Bearer ${token}`
+    }, base);
+    assert.equal(after.status, 200);
+  } finally {
+    if (!twoPersonServer.killed) twoPersonServer.kill();
+  }
 });
