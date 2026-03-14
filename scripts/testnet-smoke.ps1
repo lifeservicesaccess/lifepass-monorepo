@@ -99,6 +99,7 @@ function Show-PreflightSummary {
   $ageVerifier = Get-Value -Name 'AGE_VERIFIER_ADDRESS' -ApiLocal $apiLocal -Api $api -WebLocal $webLocal -Web $web
   $wcProjectId = Get-Value -Name 'NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID' -ApiLocal $apiLocal -Api $api -WebLocal $webLocal -Web $web
   $useSnark = Get-Value -Name 'USE_SNARKJS' -ApiLocal $apiLocal -Api $api -WebLocal $webLocal -Web $web
+  $requireAgeVerifier = Get-Value -Name 'REQUIRE_AGE_VERIFIER' -ApiLocal $apiLocal -Api $api -WebLocal $webLocal -Web $web
   $snarkWasmPath = Get-Value -Name 'SNARK_WASM_PATH' -ApiLocal $apiLocal -Api $api -WebLocal $webLocal -Web $web
   $snarkZkeyPath = Get-Value -Name 'SNARK_ZKEY_PATH' -ApiLocal $apiLocal -Api $api -WebLocal $webLocal -Web $web
   $snarkVkeyPath = Get-Value -Name 'SNARK_VKEY_PATH' -ApiLocal $apiLocal -Api $api -WebLocal $webLocal -Web $web
@@ -109,6 +110,7 @@ function Show-PreflightSummary {
     [pscustomobject]@{ Key = 'PRIVATE_KEY'; Present = (-not [string]::IsNullOrWhiteSpace($privateKey)); Format = '0x + 64 hex'; Valid = (Is-HexPrivateKey $privateKey); Sample = (Mask-Value $privateKey) }
     [pscustomobject]@{ Key = 'SBT_CONTRACT_ADDRESS'; Present = (-not [string]::IsNullOrWhiteSpace($sbtAddress)); Format = '0x + 40 hex'; Valid = (Is-HexAddress $sbtAddress); Sample = (Mask-Value $sbtAddress) }
     [pscustomobject]@{ Key = 'AGE_VERIFIER_ADDRESS'; Present = (-not [string]::IsNullOrWhiteSpace($ageVerifier)); Format = 'optional 0x + 40 hex'; Valid = ([string]::IsNullOrWhiteSpace($ageVerifier) -or (Is-HexAddress $ageVerifier)); Sample = (Mask-Value $ageVerifier) }
+    [pscustomobject]@{ Key = 'REQUIRE_AGE_VERIFIER'; Present = $true; Format = '0 or 1'; Valid = ($requireAgeVerifier -in @('0','1','')); Sample = (Mask-Value $requireAgeVerifier) }
     [pscustomobject]@{ Key = 'NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID'; Present = (-not [string]::IsNullOrWhiteSpace($wcProjectId)); Format = 'non-empty'; Valid = (-not [string]::IsNullOrWhiteSpace($wcProjectId)); Sample = (Mask-Value $wcProjectId) }
     [pscustomobject]@{ Key = 'USE_SNARKJS'; Present = $true; Format = '0 or 1'; Valid = ($useSnark -in @('0','1','')); Sample = (Mask-Value $useSnark) }
   )
@@ -128,6 +130,15 @@ function Show-PreflightSummary {
     $requiredFailures = @($rows | Where-Object {
       ($_.Key -in @('RPC_URL', 'PRIVATE_KEY', 'SBT_CONTRACT_ADDRESS', 'NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID')) -and (-not $_.Valid)
     })
+
+    if ($requireAgeVerifier -eq '1') {
+      $requireVerifierFailures = @($rows | Where-Object {
+        ($_.Key -eq 'AGE_VERIFIER_ADDRESS') -and (-not $_.Present -or -not $_.Valid)
+      })
+      if ($requireVerifierFailures.Count -gt 0) {
+        $requiredFailures += [pscustomobject]@{ Key = 'AGE_VERIFIER_ADDRESS'; Format = 'required 0x + 40 hex when REQUIRE_AGE_VERIFIER=1' }
+      }
+    }
 
     if ($snarkEnabled) {
       $requiredFailures += @($rows | Where-Object {

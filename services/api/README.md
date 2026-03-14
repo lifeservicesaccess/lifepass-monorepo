@@ -75,6 +75,7 @@ $env:DEPLOY_GAS_STRATEGY='provider'; npm run deploy:sbt
 - `SUPABASE_STORAGE_BUCKET` for onboarding image uploads
 - Optional S3 mode: `S3_BUCKET`, `S3_REGION` (API returns reference URL; external presign service can be attached)
 - `RPC_URL`, `PRIVATE_KEY`, `SBT_CONTRACT_ADDRESS`, `AGE_VERIFIER_ADDRESS` for contract ops
+- `REQUIRE_AGE_VERIFIER=1` to fail startup/readiness when `AGE_VERIFIER_ADDRESS` is missing/invalid
 - Optional real ZK mode: set `USE_SNARKJS=1` and provide `SNARK_WASM_PATH`, `SNARK_ZKEY_PATH`, `SNARK_VKEY_PATH`
 - `TRUST_SCORE_DEFAULT` for approved-user baseline trust score
 - `OPENAI_API_KEY` for model-backed chat guide (current default is deterministic stub)
@@ -181,6 +182,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\testnet-smoke.ps1 -Mode testn
 ```
 
 In strict testnet mode, the script now also verifies that `SBT_CONTRACT_ADDRESS` has deployed bytecode on the configured `RPC_URL` before API startup.
+
+If `REQUIRE_AGE_VERIFIER=1`, readiness/startup strict checks also require a valid `AGE_VERIFIER_ADDRESS` and fail fast when it is missing.
 
 If `USE_SNARKJS=1`, preflight/readiness checks also require valid `SNARK_WASM_PATH`, `SNARK_ZKEY_PATH`, and `SNARK_VKEY_PATH` values.
 During `scripts/testnet-smoke.ps1`, `npm run validate:snark` is also executed before endpoint smoke tests when `USE_SNARKJS=1`.

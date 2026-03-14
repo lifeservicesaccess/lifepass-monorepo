@@ -42,3 +42,19 @@ Agent workflows should include prompt‑response evaluations, tool‑call accura
 Integrate all tests into the CI pipeline (e.g., GitHub Actions) to automatically run on pull requests.  Configure quality gates such as code coverage thresholds, linting and static analysis (slither, solhint) to prevent regressions.
 
 CI now also runs `npm run check:schema` in `services/api` to ensure Sprint 1 SQL migration artifacts are present before API tests execute.
+
+## Testnet Release Checklist
+
+Before each testnet release candidate:
+
+- Run readiness: `powershell -ExecutionPolicy Bypass -File scripts/testnet-readiness.ps1 -Mode testnet`
+- Run strict smoke at least twice back-to-back:
+	- `powershell -ExecutionPolicy Bypass -File scripts/testnet-smoke.ps1 -Mode testnet -SkipApply`
+- Confirm `/sbt/mint` returns non-simulated tx hashes in strict mode.
+- Record smoke transaction hashes and signer wallet address in release notes.
+- Verify deployer native balance is healthy with `scripts/request-faucet.ps1`.
+
+Optional hardening:
+
+- Set `REQUIRE_AGE_VERIFIER=1` and ensure `AGE_VERIFIER_ADDRESS` is configured.
+- With `STARTUP_STRICT=1`, verify startup fails when verifier address is missing or invalid.

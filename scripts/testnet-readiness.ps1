@@ -105,14 +105,16 @@ function Write-ApiEnvLocal {
       "RPC_URL=$($Values['RPC_URL'])",
       "PRIVATE_KEY=$($Values['PRIVATE_KEY'])",
       "SBT_CONTRACT_ADDRESS=$($Values['SBT_CONTRACT_ADDRESS'])",
-      "AGE_VERIFIER_ADDRESS=$($Values['AGE_VERIFIER_ADDRESS'])"
+      "AGE_VERIFIER_ADDRESS=$($Values['AGE_VERIFIER_ADDRESS'])",
+      "REQUIRE_AGE_VERIFIER=$($Values['REQUIRE_AGE_VERIFIER'])"
     )
   } else {
     $lines += @(
       'RPC_URL=',
       'PRIVATE_KEY=',
       'SBT_CONTRACT_ADDRESS=',
-      'AGE_VERIFIER_ADDRESS='
+      'AGE_VERIFIER_ADDRESS=',
+      "REQUIRE_AGE_VERIFIER=$($Values['REQUIRE_AGE_VERIFIER'])"
     )
   }
 
@@ -149,6 +151,7 @@ $values = @{
   PRIVATE_KEY = Get-Value -Name 'PRIVATE_KEY' -ApiLocal $apiLocal -Api $api -WebLocal $webLocal -Web $web
   SBT_CONTRACT_ADDRESS = Get-Value -Name 'SBT_CONTRACT_ADDRESS' -ApiLocal $apiLocal -Api $api -WebLocal $webLocal -Web $web
   AGE_VERIFIER_ADDRESS = Get-Value -Name 'AGE_VERIFIER_ADDRESS' -ApiLocal $apiLocal -Api $api -WebLocal $webLocal -Web $web
+  REQUIRE_AGE_VERIFIER = Get-Value -Name 'REQUIRE_AGE_VERIFIER' -ApiLocal $apiLocal -Api $api -WebLocal $webLocal -Web $web
   NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID = Get-Value -Name 'NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID' -ApiLocal $apiLocal -Api $api -WebLocal $webLocal -Web $web
   USE_SNARKJS = Get-Value -Name 'USE_SNARKJS' -ApiLocal $apiLocal -Api $api -WebLocal $webLocal -Web $web
   SNARK_WASM_PATH = Get-Value -Name 'SNARK_WASM_PATH' -ApiLocal $apiLocal -Api $api -WebLocal $webLocal -Web $web
@@ -158,6 +161,9 @@ $values = @{
 
 if (-not $values['USE_SNARKJS']) {
   $values['USE_SNARKJS'] = '0'
+}
+if (-not $values['REQUIRE_AGE_VERIFIER']) {
+  $values['REQUIRE_AGE_VERIFIER'] = '0'
 }
 
 $checks = @()
@@ -174,8 +180,13 @@ if ($Mode -eq 'simulated') {
   $checks += Add-Check -Name 'SBT_CONTRACT_ADDRESS format' -Ok (Is-HexAddress $values['SBT_CONTRACT_ADDRESS']) -Detail 'Expected 0x-prefixed 20-byte address.'
   $checks += Add-Check -Name 'WalletConnect project ID set' -Ok (-not [string]::IsNullOrWhiteSpace($values['NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID'])) -Detail 'Required for web wallet connection UX.'
 
+  $requireVerifier = $values['REQUIRE_AGE_VERIFIER'] -eq '1'
+  $checks += Add-Check -Name 'REQUIRE_AGE_VERIFIER format' -Ok ($values['REQUIRE_AGE_VERIFIER'] -in @('0', '1')) -Detail 'Use 1 to require AGE_VERIFIER_ADDRESS in strict startup/readiness checks.'
+
   if (-not [string]::IsNullOrWhiteSpace($values['AGE_VERIFIER_ADDRESS'])) {
-    $checks += Add-Check -Name 'AGE_VERIFIER_ADDRESS format (optional)' -Ok (Is-HexAddress $values['AGE_VERIFIER_ADDRESS']) -Detail 'Optional, but must be valid address if set.'
+    $checks += Add-Check -Name 'AGE_VERIFIER_ADDRESS format' -Ok (Is-HexAddress $values['AGE_VERIFIER_ADDRESS']) -Detail 'Must be valid address when provided.'
+  } elseif ($requireVerifier) {
+    $checks += Add-Check -Name 'AGE_VERIFIER_ADDRESS required' -Ok $false -Detail 'Set AGE_VERIFIER_ADDRESS when REQUIRE_AGE_VERIFIER=1.'
   } else {
     $checks += Add-Check -Name 'AGE_VERIFIER_ADDRESS optional' -Ok $true -Detail 'Not set: /proof/verify-onchain will use local fallback verification.'
   }

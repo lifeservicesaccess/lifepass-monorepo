@@ -68,6 +68,7 @@ function startupChecklist() {
   const hasRpc = Boolean(RPC_URL);
   const hasPk = Boolean(PRIVATE_KEY);
   const hasSbtAddress = Boolean(SBT_CONTRACT_ADDRESS);
+  const requireAgeVerifier = process.env.REQUIRE_AGE_VERIFIER === '1';
   const blockchainReady = hasRpc && hasPk && hasSbtAddress;
   const hasCorsAllowlist = CORS_ALLOW_ALL || CORS_ALLOWED_ORIGINS.length > 0;
 
@@ -106,8 +107,14 @@ function startupChecklist() {
     },
     {
       check: 'AGE_VERIFIER_ADDRESS format',
-      status: AGE_VERIFIER_ADDRESS ? (ethers.isAddress(AGE_VERIFIER_ADDRESS) ? 'pass' : 'fail') : 'warn',
-      detail: AGE_VERIFIER_ADDRESS ? (ethers.isAddress(AGE_VERIFIER_ADDRESS) ? 'valid address format' : 'invalid address format') : 'optional; not set'
+      status: AGE_VERIFIER_ADDRESS
+        ? (ethers.isAddress(AGE_VERIFIER_ADDRESS) ? 'pass' : 'fail')
+        : (requireAgeVerifier ? 'fail' : 'warn'),
+      detail: AGE_VERIFIER_ADDRESS
+        ? (ethers.isAddress(AGE_VERIFIER_ADDRESS) ? 'valid address format' : 'invalid address format')
+        : (requireAgeVerifier
+            ? 'required when REQUIRE_AGE_VERIFIER=1'
+            : 'optional; not set')
     },
     {
       check: 'LIFEPASS_SSO_JWT_SECRET configured',

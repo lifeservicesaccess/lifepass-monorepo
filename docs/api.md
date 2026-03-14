@@ -6,6 +6,8 @@ The LifePass backend exposes a REST API for interacting with the smart contracts
 
 By default, the API server runs on `http://localhost:3003`.  When deploying to production, configure the `PORT`, `RPC_URL`, `PRIVATE_KEY` and contract addresses via environment variables.
 
+If `REQUIRE_AGE_VERIFIER=1` and `STARTUP_STRICT=1`, startup fails when `AGE_VERIFIER_ADDRESS` is missing or invalid.
+
 For browser access from the deployed web app, configure `CORS_ALLOWED_ORIGINS` as a comma-separated allowlist (for example `https://your-web.vercel.app`).
 
 ## Health
