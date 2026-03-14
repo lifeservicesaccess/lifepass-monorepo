@@ -83,6 +83,23 @@ function requestRaw(path, method = 'GET', payload = null, headers = {}, baseUrl 
   });
 }
 
+async function waitForAuditQuery(auditPath, minEvents = 1, attempts = 20, delayMs = 25) {
+  let response = null;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    response = await requestJson(auditPath, 'GET', null, { 'x-api-key': API_KEY });
+    if (
+      response.status === 200
+      && response.body?.success === true
+      && Array.isArray(response.body.events)
+      && response.body.events.length >= minEvents
+    ) {
+      return response;
+    }
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+  return response;
+}
+
 function startApiServer(port = API_PORT, extraEnv = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn('node', ['index.js'], {
@@ -248,7 +265,7 @@ test('access decisions are recorded in portal audit log', async () => {
   const deny = await requestJson('/portals/agri/requests', 'GET', null);
   assert.equal(deny.status, 401);
 
-  const audit = await requestJson('/portals/access-audit?limit=20', 'GET', null, { 'x-api-key': API_KEY });
+  const audit = await waitForAuditQuery('/portals/access-audit?limit=20', 2);
   assert.equal(audit.status, 200);
   assert.equal(audit.body.success, true);
   assert.ok(Array.isArray(audit.body.events));
@@ -272,9 +289,7 @@ test('access audit supports filtering by decision and covenant', async () => {
   const deny = await requestJson('/portals/agri/requests', 'GET', null);
   assert.equal(deny.status, 401);
 
-  const filtered = await requestJson('/portals/access-audit?decision=deny&covenant=agri&limit=20', 'GET', null, {
-    'x-api-key': API_KEY
-  });
+  const filtered = await waitForAuditQuery('/portals/access-audit?decision=deny&covenant=agri&limit=20', 1);
   assert.equal(filtered.status, 200);
   assert.equal(filtered.body.success, true);
   assert.ok(Array.isArray(filtered.body.events));
@@ -510,9 +525,7 @@ test('deny spike alerts summarize covenant-level thresholds', async () => {
   assert.equal(denyOne.status, 403);
   assert.equal(denyTwo.status, 403);
 
-  const denyAudit = await requestJson('/portals/access-audit?decision=deny&covenant=agri&limit=200', 'GET', null, {
-    'x-api-key': API_KEY
-  });
+  const denyAudit = await waitForAuditQuery('/portals/access-audit?decision=deny&covenant=agri&limit=200', 1);
   assert.equal(denyAudit.status, 200);
   assert.ok(Array.isArray(denyAudit.body.events));
   assert.ok(denyAudit.body.events.length >= 1);
