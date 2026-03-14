@@ -1,20 +1,7 @@
 const fs = require('fs').promises;
 const path = require('path');
 
-let pgClient = null;
-try {
-  const { Client } = require('pg');
-  const conn = process.env.PG_CONNECTION_STRING || process.env.DATABASE_URL;
-  if (conn) {
-    pgClient = new Client({ connectionString: conn });
-    pgClient.connect().catch((e) => {
-      console.warn('Trust store Postgres connect failed; falling back to file DB:', e.message || e);
-      pgClient = null;
-    });
-  }
-} catch (_err) {
-  // pg unavailable; file fallback will be used
-}
+const pgPool = require('./pgPool');
 
 const DATA_DIR = path.join(__dirname, '..', '..', 'data');
 const TRUST_FILE = path.join(DATA_DIR, 'trust-scores.json');
@@ -143,9 +130,9 @@ function evaluateTrustPolicy(input = {}) {
 }
 
 async function appendTrustEvent(event) {
-  if (pgClient) {
+  if (pgPool) {
     try {
-      await pgClient.query(
+      await pgPool.query(
         `INSERT INTO trust_events
           (event_id, user_id, from_score, to_score, from_level, to_level, reason, reason_codes, policy_version)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9)`,

@@ -1,23 +1,10 @@
-﻿const fs = require('fs').promises;
+const fs = require('fs').promises;
 const path = require('path');
 
 const DATA_DIR = path.join(__dirname, '..', '..', 'data');
 const POLICY_APPROVAL_FILE = path.join(DATA_DIR, 'portal-policy-approvals.json');
 
-let pgClient = null;
-try {
-  const { Client } = require('pg');
-  const conn = process.env.PG_CONNECTION_STRING || process.env.DATABASE_URL;
-  if (conn) {
-    pgClient = new Client({ connectionString: conn });
-    pgClient.connect().catch((e) => {
-      console.warn('Policy approval Postgres connect failed; falling back to file DB:', e.message || e);
-      pgClient = null;
-    });
-  }
-} catch (_err) {
-  // pg unavailable
-}
+const pgPool = require('./pgPool');
 
 function rowToProposal(row) {
   return {
@@ -37,9 +24,9 @@ function rowToProposal(row) {
 }
 
 async function readPolicyApprovals() {
-  if (pgClient) {
+  if (pgPool) {
     try {
-      const res = await pgClient.query('SELECT * FROM portal_policy_approvals ORDER BY at ASC');
+      const res = await pgPool.query('SELECT * FROM portal_policy_approvals ORDER BY at ASC');
       return (res.rows || []).map(rowToProposal);
     } catch (e) {
       console.warn('Policy approval read failed; falling back to file DB:', e.message || e);
@@ -63,9 +50,9 @@ async function writePolicyApprovals(items) {
 }
 
 async function appendPolicyApproval(item) {
-  if (pgClient) {
+  if (pgPool) {
     try {
-      await pgClient.query(
+      await pgPool.query(
         `INSERT INTO portal_policy_approvals
           (proposal_id,at,actor,action,reason,payload,payload_hash,status,required_approvals,approvals)
          VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10::jsonb)
@@ -84,9 +71,9 @@ async function appendPolicyApproval(item) {
 }
 
 async function findPolicyApprovalById(id) {
-  if (pgClient) {
+  if (pgPool) {
     try {
-      const res = await pgClient.query('SELECT * FROM portal_policy_approvals WHERE proposal_id=$1 LIMIT 1', [id]);
+      const res = await pgPool.query('SELECT * FROM portal_policy_approvals WHERE proposal_id=$1 LIMIT 1', [id]);
       return (res.rows && res.rows[0]) ? rowToProposal(res.rows[0]) : null;
     } catch (e) {
       console.warn('Policy approval find failed; falling back to file DB:', e.message || e);
@@ -97,12 +84,12 @@ async function findPolicyApprovalById(id) {
 }
 
 async function updatePolicyApproval(id, updater) {
-  if (pgClient) {
+  if (pgPool) {
     try {
       const current = await findPolicyApprovalById(id);
       if (!current) return null;
       const next = typeof updater === 'function' ? updater(current) : { ...current, ...(updater || {}) };
-      await pgClient.query(
+      await pgPool.query(
         `UPDATE portal_policy_approvals SET
           status=$2, approvals=$3::jsonb, executed_at=$4, execution=$5::jsonb
          WHERE proposal_id=$1`,

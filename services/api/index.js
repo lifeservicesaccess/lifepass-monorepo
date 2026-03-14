@@ -1835,6 +1835,17 @@ if (process.env.STARTUP_STRICT === '1' && startupReport.hasFail) {
   process.exit(1);
 }
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`API server listening on port ${PORT}`);
+});
+
+// Graceful shutdown — drain in-flight requests before exiting on SIGTERM (Render rolling deploy)
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received — closing HTTP server');
+  server.close(() => {
+    console.log('HTTP server closed');
+    const pgPool = require('./tools/pgPool');
+    if (pgPool) pgPool.end(() => process.exit(0));
+    else process.exit(0);
+  });
 });

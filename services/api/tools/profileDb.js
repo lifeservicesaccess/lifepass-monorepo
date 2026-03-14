@@ -1,20 +1,7 @@
 // Profile DB adapter with Postgres support and JSON-file fallback
 const fs = require('fs').promises;
 const path = require('path');
-let pgClient = null;
-try {
-  const { Client } = require('pg');
-  const conn = process.env.PG_CONNECTION_STRING || process.env.DATABASE_URL;
-  if (conn) {
-    pgClient = new Client({ connectionString: conn });
-    pgClient.connect().catch((e) => {
-      console.warn('Postgres connect failed, falling back to file DB:', e.message || e);
-      pgClient = null;
-    });
-  }
-} catch (e) {
-  // pg not installed or not configured; will use file fallback
-}
+const pgPool = require('./pgPool');
 
 const DATA_DIR = path.join(__dirname, '..', '..', 'data');
 const PROFILES_FILE = path.join(DATA_DIR, 'profiles.json');
@@ -29,9 +16,9 @@ async function _readProfilesFile() {
 }
 
 async function getProfile(userId) {
-  if (pgClient) {
+  if (pgPool) {
     try {
-      const res = await pgClient.query('SELECT data FROM profiles WHERE user_id=$1 LIMIT 1', [userId]);
+      const res = await pgPool.query('SELECT data FROM profiles WHERE user_id=$1 LIMIT 1', [userId]);
       if (res.rows && res.rows.length) return res.rows[0].data;
       return null;
     } catch (e) {
@@ -46,9 +33,9 @@ async function getProfile(userId) {
 }
 
 async function upsertProfile(userId, profile) {
-  if (pgClient) {
+  if (pgPool) {
     try {
-      await pgClient.query('INSERT INTO profiles (user_id, data) VALUES ($1, $2) ON CONFLICT (user_id) DO UPDATE SET data = $2', [userId, profile]);
+      await pgPool.query('INSERT INTO profiles (user_id, data) VALUES ($1, $2) ON CONFLICT (user_id) DO UPDATE SET data = $2', [userId, profile]);
       return true;
     } catch (e) {
       console.warn('Postgres upsert failed, falling back to file DB:', e.message || e);
@@ -63,9 +50,9 @@ async function upsertProfile(userId, profile) {
 }
 
 async function listProfiles() {
-  if (pgClient) {
+  if (pgPool) {
     try {
-      const res = await pgClient.query('SELECT user_id, data FROM profiles');
+      const res = await pgPool.query('SELECT user_id, data FROM profiles');
       return (res.rows || []).map((row) => ({ userId: row.user_id, ...(row.data || {}) }));
     } catch (e) {
       console.warn('Postgres list failed, falling back to file DB:', e.message || e);

@@ -10,30 +10,21 @@ const TRUST_LEVELS = new Set(['bronze', 'silver', 'gold']);
 // so that readPolicyOverrideMatrixSync() never needs to do I/O.
 let _overrideCache = null;
 
-let pgClient = null;
-try {
-  const { Client } = require('pg');
-  const conn = process.env.PG_CONNECTION_STRING || process.env.DATABASE_URL;
-  if (conn) {
-    pgClient = new Client({ connectionString: conn });
-    pgClient.connect()
-      .then(() => {
-        // Prime the cache from DB on startup
-        return pgClient.query("SELECT matrix FROM portal_policy_overrides WHERE config_key='default' LIMIT 1");
-      })
-      .then((res) => {
-        if (res && res.rows && res.rows[0]) {
-          _overrideCache = res.rows[0].matrix || {};
-        }
-      })
-      .catch((e) => {
-        console.warn('Policy override store Postgres connect failed; falling back to file DB:', e.message || e);
-        pgClient = null;
-      });
+const pgPool = require('./pgPool');
+
+// Prime the override cache from DB on startup
+(async () => {
+  if (pgPool) {
+    try {
+      const res = await pgPool.query("SELECT matrix FROM portal_policy_overrides WHERE config_key='default' LIMIT 1");
+      if (res && res.rows && res.rows[0]) {
+        _overrideCache = res.rows[0].matrix || {};
+      }
+    } catch (e) {
+      console.warn('Policy override cache prime failed; will use file fallback:', e.message || e);
+    }
   }
-} catch (_err) {
-  // pg unavailable
-}
+})();
 
 function cloneObject(value) {
   return JSON.parse(JSON.stringify(value || {}));
@@ -123,9 +114,9 @@ async function writePolicyOverrideMatrix(matrix) {
   const normalized = normalizePolicyMatrix(matrix);
   // Update cache immediately so subsequent sync reads see the new value
   _overrideCache = cloneObject(normalized);
-  if (pgClient) {
+  if (pgPool) {
     try {
-      await pgClient.query(
+      await pgPool.query(
         `INSERT INTO portal_policy_overrides (config_key,matrix,updated_at) VALUES ('default',$1::jsonb,NOW())
          ON CONFLICT (config_key) DO UPDATE SET matrix=$1::jsonb,updated_at=NOW()`,
         [JSON.stringify(normalized)]

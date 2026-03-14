@@ -1,29 +1,16 @@
-﻿const fs = require('fs').promises;
+const fs = require('fs').promises;
 const path = require('path');
 const crypto = require('crypto');
 
 const DATA_DIR = path.join(__dirname, '..', '..', 'data');
 const POLICY_ADMIN_AUDIT_FILE = path.join(DATA_DIR, 'portal-policy-admin-audit.json');
 
-let pgClient = null;
-try {
-  const { Client } = require('pg');
-  const conn = process.env.PG_CONNECTION_STRING || process.env.DATABASE_URL;
-  if (conn) {
-    pgClient = new Client({ connectionString: conn });
-    pgClient.connect().catch((e) => {
-      console.warn('Policy admin audit Postgres connect failed; falling back to file DB:', e.message || e);
-      pgClient = null;
-    });
-  }
-} catch (_err) {
-  // pg unavailable
-}
+const pgPool = require('./pgPool');
 
 async function readPolicyAdminAuditEvents() {
-  if (pgClient) {
+  if (pgPool) {
     try {
-      const res = await pgClient.query('SELECT event_id,at,actor,action,payload FROM portal_policy_admin_audit ORDER BY at ASC');
+      const res = await pgPool.query('SELECT event_id,at,actor,action,payload FROM portal_policy_admin_audit ORDER BY at ASC');
       return (res.rows || []).map((r) => ({ ...r.payload, at: r.at, actor: r.actor, action: r.action }));
     } catch (e) {
       console.warn('Policy admin audit read failed; falling back to file DB:', e.message || e);
@@ -39,10 +26,10 @@ async function readPolicyAdminAuditEvents() {
 }
 
 async function appendPolicyAdminAuditEvent(event) {
-  if (pgClient) {
+  if (pgPool) {
     try {
       const eventId = event.eventId || crypto.randomUUID();
-      await pgClient.query(
+      await pgPool.query(
         'INSERT INTO portal_policy_admin_audit (event_id,at,actor,action,payload) VALUES ($1,$2,$3,$4,$5::jsonb) ON CONFLICT (event_id) DO NOTHING',
         [eventId, event.at || new Date().toISOString(), event.actor || 'unknown', event.action || 'unknown', JSON.stringify(event)]
       );

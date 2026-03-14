@@ -6,20 +6,7 @@ const DATA_DIR = path.join(__dirname, '..', '..', 'data');
 const EVENTS_FILE = path.join(DATA_DIR, 'verification-events.json');
 const EDGES_FILE = path.join(DATA_DIR, 'web-of-trust-edges.json');
 
-let pgClient = null;
-try {
-  const { Client } = require('pg');
-  const conn = process.env.PG_CONNECTION_STRING || process.env.DATABASE_URL;
-  if (conn) {
-    pgClient = new Client({ connectionString: conn });
-    pgClient.connect().catch((e) => {
-      console.warn('Verification store Postgres connect failed; falling back to file DB:', e.message || e);
-      pgClient = null;
-    });
-  }
-} catch (_err) {
-  // pg unavailable; file fallback will be used
-}
+const pgPool = require('./pgPool');
 
 async function readJson(filePath, fallback) {
   try {
@@ -64,9 +51,9 @@ async function addVerificationEvent(payload) {
     revokedAt: null
   };
 
-  if (pgClient) {
+  if (pgPool) {
     try {
-      await pgClient.query(
+      await pgPool.query(
         `INSERT INTO verification_events
           (verification_id, user_id, verifier_user_id, verifier_name, kind, document_type, status, note, evidence_url, metadata)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb)`,
@@ -96,9 +83,9 @@ async function addVerificationEvent(payload) {
 }
 
 async function revokeVerificationEvent(userId, verificationId, reason = '', reviewerId = '') {
-  if (pgClient) {
+  if (pgPool) {
     try {
-      const result = await pgClient.query(
+      const result = await pgPool.query(
         `UPDATE verification_events
          SET status='revoked', revoked_at=NOW(), note=CASE WHEN note IS NULL OR note='' THEN $3 ELSE note || ' | revoked: ' || $3 END,
              metadata = COALESCE(metadata, '{}'::jsonb) || $4::jsonb
@@ -144,9 +131,9 @@ async function upsertTrustEdge(edge) {
     revokedAt: null
   };
 
-  if (pgClient) {
+  if (pgPool) {
     try {
-      await pgClient.query(
+      await pgPool.query(
         `INSERT INTO web_of_trust_edges (edge_id, source_user_id, target_user_id, status, metadata)
          VALUES ($1,$2,$3,$4,$5::jsonb)
          ON CONFLICT (edge_id)
@@ -173,12 +160,12 @@ async function upsertTrustEdge(edge) {
 async function listVerificationEvents(userId, opts = {}) {
   const includeRevoked = Boolean(opts.includeRevoked);
 
-  if (pgClient) {
+  if (pgPool) {
     try {
       const clauses = ['user_id=$1'];
       const params = [userId];
       if (!includeRevoked) clauses.push(`status <> 'revoked'`);
-      const result = await pgClient.query(
+      const result = await pgPool.query(
         `SELECT verification_id AS "verificationId", user_id AS "userId", verifier_user_id AS "verifierUserId", verifier_name AS "verifierName",
                 kind, document_type AS "documentType", status, note, evidence_url AS "evidenceUrl", metadata,
                 created_at AS "createdAt", revoked_at AS "revokedAt"
@@ -200,12 +187,12 @@ async function listVerificationEvents(userId, opts = {}) {
 async function listTrustEdgesByTarget(userId, opts = {}) {
   const includeRevoked = Boolean(opts.includeRevoked);
 
-  if (pgClient) {
+  if (pgPool) {
     try {
       const clauses = ['target_user_id=$1'];
       const params = [userId];
       if (!includeRevoked) clauses.push(`status <> 'revoked'`);
-      const result = await pgClient.query(
+      const result = await pgPool.query(
         `SELECT edge_id AS "edgeId", source_user_id AS "sourceUserId", target_user_id AS "targetUserId", status,
                 metadata, created_at AS "createdAt", revoked_at AS "revokedAt"
          FROM web_of_trust_edges

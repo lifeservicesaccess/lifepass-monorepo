@@ -1,29 +1,16 @@
-﻿const fs = require('fs').promises;
+const fs = require('fs').promises;
 const path = require('path');
 const crypto = require('crypto');
 
 const DATA_DIR = path.join(__dirname, '..', '..', 'data');
 const AUDIT_FILE = path.join(DATA_DIR, 'portal-access-audit.json');
 
-let pgClient = null;
-try {
-  const { Client } = require('pg');
-  const conn = process.env.PG_CONNECTION_STRING || process.env.DATABASE_URL;
-  if (conn) {
-    pgClient = new Client({ connectionString: conn });
-    pgClient.connect().catch((e) => {
-      console.warn('Portal access audit Postgres connect failed; falling back to file DB:', e.message || e);
-      pgClient = null;
-    });
-  }
-} catch (_err) {
-  // pg unavailable
-}
+const pgPool = require('./pgPool');
 
 async function readAuditEvents() {
-  if (pgClient) {
+  if (pgPool) {
     try {
-      const res = await pgClient.query(
+      const res = await pgPool.query(
         'SELECT event_id,at,method,path,covenant,policy_key AS "policyKey",decision,status,required_trust AS "requiredTrustLevel",actual_trust AS "actualTrustLevel",user_id AS "userId",reason,trust_score AS "trustScore" FROM portal_access_audit ORDER BY at ASC'
       );
       return res.rows || [];
@@ -41,10 +28,10 @@ async function readAuditEvents() {
 }
 
 async function appendAuditEvent(event) {
-  if (pgClient) {
+  if (pgPool) {
     try {
       const eventId = event.eventId || crypto.randomUUID();
-      await pgClient.query(
+      await pgPool.query(
         `INSERT INTO portal_access_audit
           (event_id,at,method,path,covenant,policy_key,decision,status,required_trust,actual_trust,user_id,reason,trust_score)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
