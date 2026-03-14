@@ -497,8 +497,18 @@ test('policy snapshots can be listed and restored', async () => {
 });
 
 test('deny spike alerts summarize covenant-level thresholds', async () => {
-  await requestJson('/portals/agri/requests', 'GET', null);
-  await requestJson('/portals/agri/requests', 'GET', null);
+  const userId = `portal-deny-${Date.now()}`;
+  await setTrust(userId, 35);
+  const token = await issueTokenForUser(userId);
+
+  const denyOne = await requestJson('/portals/agri/requests', 'GET', null, {
+    Authorization: `Bearer ${token}`
+  });
+  const denyTwo = await requestJson('/portals/agri/requests', 'GET', null, {
+    Authorization: `Bearer ${token}`
+  });
+  assert.equal(denyOne.status, 403);
+  assert.equal(denyTwo.status, 403);
 
   const denyAudit = await requestJson('/portals/access-audit?decision=deny&covenant=agri&limit=200', 'GET', null, {
     'x-api-key': API_KEY
