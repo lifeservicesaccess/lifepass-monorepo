@@ -14,6 +14,7 @@ const { readPolicyMatrix } = require('./portals/policyMatrix');
 const portalAccessAuditStore = require('./tools/portalAccessAuditStore');
 const portalPolicyStore = require('./tools/portalPolicyStore');
 const policyAdminAuditStore = require('./tools/policyAdminAuditStore');
+const policySnapshotStore = require('./tools/policySnapshotStore');
 const vectorStore = require('./tools/vectorStore');
 const chatGuide = require('./tools/chatGuide');
 const { createPortalRouter } = require('./portals/router');
@@ -60,6 +61,14 @@ const sbtContract = SBT_CONTRACT_ADDRESS && wallet
   ? new ethers.Contract(SBT_CONTRACT_ADDRESS, LIFE_PASS_ABI, wallet)
   : null;
 const flowMintLocks = new Set();
+const PORTAL_POLICY_ROUTE_MAP = {
+  commons: { me: 'GET /portals/commons/me' },
+  agri: {
+    createRequest: 'POST /portals/agri/requests',
+    listRequests: 'GET /portals/agri/requests'
+  },
+  health: { ageGatedServices: 'GET /portals/health/age-gated-services' }
+};
 
 function isValidPrivateKey(value) {
   return typeof value === 'string' && /^0x[a-fA-F0-9]{64}$/.test(value);
@@ -228,6 +237,81 @@ function toAccessAuditCsv(events) {
 
   const rows = events.map((evt) => headers.map((key) => toCsvValue(evt[key])));
   return [headers.join(','), ...rows.map((row) => row.join(','))].join('\n');
+}
+
+function buildPolicyDiff(beforeMatrix, afterMatrix) {
+  const covenants = new Set([
+    ...Object.keys(beforeMatrix || {}),
+    ...Object.keys(afterMatrix || {})
+  ]);
+
+  const changes = [];
+  for (const covenant of covenants) {
+    const beforePolicies = beforeMatrix[covenant] || {};
+    const afterPolicies = afterMatrix[covenant] || {};
+    const policyKeys = new Set([...Object.keys(beforePolicies), ...Object.keys(afterPolicies)]);
+
+    for (const policyKey of policyKeys) {
+      const before = beforePolicies[policyKey] || {};
+      const after = afterPolicies[policyKey] || {};
+      const beforeMin = before.minTrustLevel || null;
+      const afterMin = after.minTrustLevel || null;
+      const beforeAudience = before.audience || null;
+      const afterAudience = after.audience || null;
+
+      if (beforeMin !== afterMin || beforeAudience !== afterAudience) {
+        changes.push({
+          covenant,
+          policyKey,
+          route: (PORTAL_POLICY_ROUTE_MAP[covenant] || {})[policyKey] || null,
+          before: {
+            minTrustLevel: beforeMin,
+            audience: beforeAudience
+          },
+          after: {
+            minTrustLevel: afterMin,
+            audience: afterAudience
+          }
+        });
+      }
+    }
+  }
+
+  return changes;
+}
+
+function summarizeDenyAlerts(events, threshold, windowMinutes) {
+  const now = Date.now();
+  const windowMs = Math.max(1, windowMinutes) * 60 * 1000;
+  const grouped = new Map();
+
+  for (const evt of events || []) {
+    if (String(evt.decision || '').toLowerCase() !== 'deny') continue;
+    const at = Date.parse(evt.at || '');
+    if (!Number.isFinite(at) || now - at > windowMs) continue;
+
+    const covenant = String(evt.covenant || 'unknown').toLowerCase();
+    const current = grouped.get(covenant) || { count: 0, reasons: {} };
+    current.count += 1;
+    const reason = String(evt.reason || 'unknown');
+    current.reasons[reason] = (current.reasons[reason] || 0) + 1;
+    grouped.set(covenant, current);
+  }
+
+  const alerts = [];
+  for (const [covenant, data] of grouped.entries()) {
+    if (data.count >= threshold) {
+      alerts.push({
+        covenant,
+        denyCount: data.count,
+        threshold,
+        windowMinutes,
+        reasons: data.reasons
+      });
+    }
+  }
+
+  return alerts.sort((a, b) => b.denyCount - a.denyCount);
 }
 
 // Production CORS allowlist: set CORS_ALLOWED_ORIGINS="https://app.example,https://preview.example"
@@ -1018,8 +1102,21 @@ app.post('/portals/policy-matrix',
       const nextOverrides = replace
         ? incoming
         : portalPolicyStore.mergePolicyLayers(previousOverrides, incoming);
+      const beforeMatrix = readPolicyMatrix();
 
       await portalPolicyStore.writePolicyOverrideMatrix(nextOverrides);
+      const afterMatrix = readPolicyMatrix();
+      const changes = buildPolicyDiff(beforeMatrix, afterMatrix);
+
+      const snapshot = await policySnapshotStore.appendPolicySnapshot({
+        id: `${Date.now()}-${Math.floor(Math.random() * 1e6)}`,
+        at: new Date().toISOString(),
+        actor,
+        reason,
+        replace,
+        overrides: nextOverrides,
+        changes
+      });
 
       await policyAdminAuditStore.appendPolicyAdminAuditEvent({
         at: new Date().toISOString(),
@@ -1027,6 +1124,8 @@ app.post('/portals/policy-matrix',
         action: 'policy_matrix_update',
         reason,
         replace,
+        snapshotId: snapshot.id,
+        changedCount: changes.length,
         changedCovenants: Object.keys(incoming),
         changedPolicyKeys: Object.fromEntries(
           Object.entries(incoming).map(([covenant, rules]) => [covenant, Object.keys(rules || {})])
@@ -1036,7 +1135,9 @@ app.post('/portals/policy-matrix',
       return res.json({
         success: true,
         message: 'Portal policy matrix updated',
-        matrix: readPolicyMatrix(),
+        snapshotId: snapshot.id,
+        changes,
+        matrix: afterMatrix,
         overrides: nextOverrides
       });
     } catch (err) {
@@ -1045,6 +1146,105 @@ app.post('/portals/policy-matrix',
       }
       console.error('portals/policy-matrix update error', err);
       return res.status(500).json({ success: false, error: 'Failed to update portal policy matrix' });
+    }
+  }
+);
+
+app.post('/portals/policy-matrix/preview',
+  requireApiKey,
+  requirePolicyAdminKey,
+  body('matrix').isObject(),
+  body('replace').optional().isBoolean(),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
+
+    try {
+      const replace = Boolean(req.body.replace);
+      const incoming = portalPolicyStore.normalizePolicyMatrix(req.body.matrix || {});
+      const previousOverrides = portalPolicyStore.readPolicyOverrideMatrixSync();
+      const nextOverrides = replace
+        ? incoming
+        : portalPolicyStore.mergePolicyLayers(previousOverrides, incoming);
+
+      const beforeMatrix = readPolicyMatrix();
+      const afterMatrix = portalPolicyStore.mergePolicyLayers(
+        beforeMatrix,
+        nextOverrides
+      );
+      const changes = buildPolicyDiff(beforeMatrix, afterMatrix);
+
+      return res.json({
+        success: true,
+        replace,
+        changedCount: changes.length,
+        changes,
+        projectedMatrix: afterMatrix,
+        projectedOverrides: nextOverrides
+      });
+    } catch (err) {
+      if (String(err.message || '').includes('matrix.')) {
+        return res.status(400).json({ success: false, error: err.message });
+      }
+      console.error('portals/policy-matrix/preview error', err);
+      return res.status(500).json({ success: false, error: 'Failed to preview portal policy matrix changes' });
+    }
+  }
+);
+
+app.get('/portals/policy-snapshots', requireApiKey, requirePolicyAdminKey, async (req, res) => {
+  try {
+    const limitRaw = Number(req.query.limit || 50);
+    const limit = Math.max(1, Math.min(500, Number.isFinite(limitRaw) ? limitRaw : 50));
+    const snapshots = await policySnapshotStore.readPolicySnapshots();
+    const sliced = snapshots.slice(-limit);
+    return res.json({ success: true, count: sliced.length, snapshots: sliced });
+  } catch (err) {
+    console.error('portals/policy-snapshots error', err);
+    return res.status(500).json({ success: false, error: 'Failed to read policy snapshots' });
+  }
+});
+
+app.post('/portals/policy-snapshots/:snapshotId/restore',
+  requireApiKey,
+  requirePolicyAdminKey,
+  body('reason').optional().isString(),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
+
+    try {
+      const snapshotId = req.params.snapshotId;
+      const actor = req.header('x-admin-actor') || 'unknown';
+      const reason = (req.body.reason || '').trim();
+      const snapshot = await policySnapshotStore.findPolicySnapshot(snapshotId);
+      if (!snapshot) return res.status(404).json({ success: false, error: 'Snapshot not found' });
+
+      const beforeMatrix = readPolicyMatrix();
+      await portalPolicyStore.writePolicyOverrideMatrix(snapshot.overrides || {});
+      const afterMatrix = readPolicyMatrix();
+      const changes = buildPolicyDiff(beforeMatrix, afterMatrix);
+
+      await policyAdminAuditStore.appendPolicyAdminAuditEvent({
+        at: new Date().toISOString(),
+        actor,
+        action: 'policy_matrix_restore',
+        reason,
+        snapshotId,
+        changedCount: changes.length
+      });
+
+      return res.json({
+        success: true,
+        message: 'Policy snapshot restored',
+        snapshotId,
+        changes,
+        matrix: afterMatrix,
+        overrides: snapshot.overrides || {}
+      });
+    } catch (err) {
+      console.error('portals/policy-snapshots restore error', err);
+      return res.status(500).json({ success: false, error: 'Failed to restore policy snapshot' });
     }
   }
 );
@@ -1059,6 +1259,28 @@ app.get('/portals/policy-admin/audit', requireApiKey, requirePolicyAdminKey, asy
   } catch (err) {
     console.error('portals/policy-admin/audit error', err);
     return res.status(500).json({ success: false, error: 'Failed to read policy admin audit events' });
+  }
+});
+
+app.get('/portals/access-audit/alerts', requireApiKey, requirePolicyAdminKey, async (req, res) => {
+  try {
+    const thresholdRaw = Number(req.query.threshold || process.env.PORTAL_DENY_ALERT_THRESHOLD || 10);
+    const windowRaw = Number(req.query.windowMinutes || process.env.PORTAL_DENY_ALERT_WINDOW_MINUTES || 60);
+    const threshold = Math.max(1, Math.min(10000, Number.isFinite(thresholdRaw) ? thresholdRaw : 10));
+    const windowMinutes = Math.max(1, Math.min(60 * 24 * 14, Number.isFinite(windowRaw) ? windowRaw : 60));
+
+    const events = await portalAccessAuditStore.readAuditEvents();
+    const alerts = summarizeDenyAlerts(events, threshold, windowMinutes);
+    return res.json({
+      success: true,
+      threshold,
+      windowMinutes,
+      alerts,
+      alertCount: alerts.length
+    });
+  } catch (err) {
+    console.error('portals/access-audit/alerts error', err);
+    return res.status(500).json({ success: false, error: 'Failed to generate access audit alerts' });
   }
 });
 

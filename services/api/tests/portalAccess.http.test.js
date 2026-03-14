@@ -13,6 +13,7 @@ const POLICY_ADMIN_KEY = 'test-policy-admin-key';
 const AUDIT_FILE = path.join(API_CWD, '..', 'data', 'portal-access-audit.json');
 const POLICY_OVERRIDE_FILE = path.join(API_CWD, '..', 'data', 'portal-policy-overrides.json');
 const POLICY_ADMIN_AUDIT_FILE = path.join(API_CWD, '..', 'data', 'portal-policy-admin-audit.json');
+const POLICY_SNAPSHOT_FILE = path.join(API_CWD, '..', 'data', 'portal-policy-snapshots.json');
 
 function requestJson(path, method = 'GET', payload = null, headers = {}, baseUrl = API_BASE) {
   return new Promise((resolve, reject) => {
@@ -165,6 +166,7 @@ test.before(async () => {
   await fs.writeFile(AUDIT_FILE, '[]', 'utf8');
   await fs.writeFile(POLICY_OVERRIDE_FILE, '{}', 'utf8');
   await fs.writeFile(POLICY_ADMIN_AUDIT_FILE, '[]', 'utf8');
+  await fs.writeFile(POLICY_SNAPSHOT_FILE, '[]', 'utf8');
   server = await startApiServer();
 });
 
@@ -378,4 +380,140 @@ test('policy admin update changes enforcement and writes admin audit trail', asy
   const latest = audit.body.events[audit.body.events.length - 1];
   assert.equal(latest.action, 'policy_matrix_update');
   assert.equal(latest.actor, 'integration-test');
+});
+
+test('policy preview returns route-level diff without applying changes', async () => {
+  const preview = await requestJson('/portals/policy-matrix/preview', 'POST', {
+    matrix: {
+      agri: {
+        listRequests: { minTrustLevel: 'gold' }
+      }
+    }
+  }, {
+    'x-api-key': API_KEY,
+    'x-policy-admin-key': POLICY_ADMIN_KEY
+  });
+
+  assert.equal(preview.status, 200);
+  assert.equal(preview.body.success, true);
+  assert.ok(preview.body.changedCount >= 1);
+  assert.ok(Array.isArray(preview.body.changes));
+  const target = preview.body.changes.find((item) => item.covenant === 'agri' && item.policyKey === 'listRequests');
+  assert.ok(Boolean(target));
+  assert.equal(target.route, 'GET /portals/agri/requests');
+});
+
+test('policy snapshots can be listed and restored', async () => {
+  const baselinePolicy = await requestJson('/portals/policy-matrix', 'POST', {
+    matrix: {
+      health: {
+        ageGatedServices: { minTrustLevel: 'silver' }
+      }
+    },
+    reason: 'reset baseline before snapshot test'
+  }, {
+    'x-api-key': API_KEY,
+    'x-policy-admin-key': POLICY_ADMIN_KEY,
+    'x-admin-actor': 'snapshot-test'
+  });
+  assert.equal(baselinePolicy.status, 200);
+
+  const userId = `portal-snapshot-${Date.now()}`;
+  await setTrust(userId, 35);
+  const token = await issueTokenForUser(userId);
+
+  const baseline = await requestJson('/portals/health/age-gated-services', 'GET', null, {
+    Authorization: `Bearer ${token}`
+  });
+  assert.equal(baseline.status, 403);
+
+  const firstUpdate = await requestJson('/portals/policy-matrix', 'POST', {
+    matrix: {
+      health: {
+        ageGatedServices: { minTrustLevel: 'bronze' }
+      }
+    },
+    reason: 'snapshot-one'
+  }, {
+    'x-api-key': API_KEY,
+    'x-policy-admin-key': POLICY_ADMIN_KEY,
+    'x-admin-actor': 'snapshot-test'
+  });
+  assert.equal(firstUpdate.status, 200);
+  assert.equal(firstUpdate.body.success, true);
+  const firstSnapshotId = firstUpdate.body.snapshotId;
+  assert.ok(Boolean(firstSnapshotId));
+
+  const bronzeAccess = await requestJson('/portals/health/age-gated-services', 'GET', null, {
+    Authorization: `Bearer ${token}`
+  });
+  assert.equal(bronzeAccess.status, 200);
+
+  const secondUpdate = await requestJson('/portals/policy-matrix', 'POST', {
+    matrix: {
+      health: {
+        ageGatedServices: { minTrustLevel: 'silver' }
+      }
+    },
+    reason: 'snapshot-two'
+  }, {
+    'x-api-key': API_KEY,
+    'x-policy-admin-key': POLICY_ADMIN_KEY,
+    'x-admin-actor': 'snapshot-test'
+  });
+  assert.equal(secondUpdate.status, 200);
+
+  const restrictedAgain = await requestJson('/portals/health/age-gated-services', 'GET', null, {
+    Authorization: `Bearer ${token}`
+  });
+  assert.equal(restrictedAgain.status, 403);
+
+  const snapshotList = await requestJson('/portals/policy-snapshots?limit=20', 'GET', null, {
+    'x-api-key': API_KEY,
+    'x-policy-admin-key': POLICY_ADMIN_KEY
+  });
+  assert.equal(snapshotList.status, 200);
+  assert.equal(snapshotList.body.success, true);
+  assert.ok(Array.isArray(snapshotList.body.snapshots));
+  assert.ok(snapshotList.body.snapshots.some((item) => item.id === firstSnapshotId));
+
+  const restore = await requestJson(`/portals/policy-snapshots/${firstSnapshotId}/restore`, 'POST', {
+    reason: 'restore-first-snapshot'
+  }, {
+    'x-api-key': API_KEY,
+    'x-policy-admin-key': POLICY_ADMIN_KEY,
+    'x-admin-actor': 'snapshot-test'
+  });
+  assert.equal(restore.status, 200);
+  assert.equal(restore.body.success, true);
+
+  const afterRestore = await requestJson('/portals/health/age-gated-services', 'GET', null, {
+    Authorization: `Bearer ${token}`
+  });
+  assert.equal(afterRestore.status, 200);
+});
+
+test('deny spike alerts summarize covenant-level thresholds', async () => {
+  await requestJson('/portals/agri/requests', 'GET', null);
+  await requestJson('/portals/agri/requests', 'GET', null);
+
+  const denyAudit = await requestJson('/portals/access-audit?decision=deny&covenant=agri&limit=200', 'GET', null, {
+    'x-api-key': API_KEY
+  });
+  assert.equal(denyAudit.status, 200);
+  assert.ok(Array.isArray(denyAudit.body.events));
+  assert.ok(denyAudit.body.events.length >= 1);
+
+  const alerts = await requestJson('/portals/access-audit/alerts?threshold=1&windowMinutes=240', 'GET', null, {
+    'x-api-key': API_KEY,
+    'x-policy-admin-key': POLICY_ADMIN_KEY
+  });
+
+  assert.equal(alerts.status, 200);
+  assert.equal(alerts.body.success, true);
+  assert.ok(Array.isArray(alerts.body.alerts));
+  assert.ok(alerts.body.alerts.length >= 1);
+  const agri = alerts.body.alerts.find((item) => item.covenant === 'agri');
+  assert.ok(Boolean(agri));
+  assert.ok(agri.denyCount >= 1);
 });

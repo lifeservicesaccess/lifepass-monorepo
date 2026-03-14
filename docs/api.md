@@ -177,9 +177,14 @@ Performs semantic search against stored user-purpose/skills embeddings.
 - `GET /portals/health/age-gated-services` (requires SSO bearer token; min Silver)
 - `GET /portals/policy-matrix` (requires `x-api-key`; returns effective policy matrix)
 - `POST /portals/policy-matrix` (requires `x-api-key` + `x-policy-admin-key`; updates policy override matrix)
+- `POST /portals/policy-matrix/preview` (requires `x-api-key` + `x-policy-admin-key`; returns diff/impact preview without applying)
+- `GET /portals/policy-snapshots?limit=50` (requires `x-api-key` + `x-policy-admin-key`; returns policy snapshots)
+- `POST /portals/policy-snapshots/:snapshotId/restore` (requires `x-api-key` + `x-policy-admin-key`; restores snapshot)
 - `GET /portals/access-audit?limit=50` (requires `x-api-key`; returns recent allow/deny decisions)
   - Optional filters: `decision`, `covenant`, `policyKey`, `userId`
   - Optional export: `format=csv`
+- `GET /portals/access-audit/alerts` (requires `x-api-key` + `x-policy-admin-key`; deny-spike alerts by covenant)
+  - Optional query: `threshold`, `windowMinutes`
 - `GET /portals/policy-admin/audit?limit=50` (requires `x-api-key` + `x-policy-admin-key`; returns policy update audit events)
 
 For protected portal routes, pass `Authorization: Bearer <token>` where token is created by `/auth/sso/token`.
@@ -187,6 +192,7 @@ For protected portal routes, pass `Authorization: Bearer <token>` where token is
 Policy thresholds are configurable with `LIFEPASS_PORTAL_POLICY_JSON` (JSON map by covenant and policy key).
 Access decision logs are retained in file-backed storage and trimmed by `PORTAL_ACCESS_AUDIT_MAX_ROWS`.
 Policy admin update routes require `POLICY_ADMIN_KEY`; admin audit retention is controlled by `POLICY_ADMIN_AUDIT_MAX_ROWS`.
+Policy snapshots are retained by `POLICY_SNAPSHOT_MAX_ROWS`. Deny alert defaults are configurable via `PORTAL_DENY_ALERT_THRESHOLD` and `PORTAL_DENY_ALERT_WINDOW_MINUTES`.
 
 ## Future API Extensions
 
