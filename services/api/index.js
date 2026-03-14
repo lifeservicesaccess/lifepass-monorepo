@@ -22,6 +22,7 @@ const policySnapshotStore = require('./tools/policySnapshotStore');
 const policyApprovalStore = require('./tools/policyApprovalStore');
 const vectorStore = require('./tools/vectorStore');
 const chatGuide = require('./tools/chatGuide');
+const milestoneStore = require('./tools/milestoneStore');
 const { createPortalRouter } = require('./portals/router');
 const { loadApiEnv } = require('./tools/loadEnv');
 
@@ -333,7 +334,7 @@ function summarizeDenyAlerts(events, threshold, windowMinutes) {
 
   for (const evt of events || []) {
     if (String(evt.decision || '').toLowerCase() !== 'deny') continue;
-    const at = Date.parse(evt.at || '');
+    const at = evt.at instanceof Date ? evt.at.getTime() : Date.parse(evt.at || '');
     if (!Number.isFinite(at) || now - at > windowMs) continue;
 
     const covenant = String(evt.covenant || 'unknown').toLowerCase();
@@ -1208,12 +1209,85 @@ app.get('/users/:userId/dashboard', requireApiKey, async (req, res) => {
     const profile = await profileDb.getProfile(req.params.userId);
     if (!profile) return res.status(404).json({ success: false, error: 'Profile not found' });
     const trust = await trustScoreStore.getTrustScore(req.params.userId);
-    return res.json({ success: true, profile, trust });
+    const milestones = await milestoneStore.listMilestones(req.params.userId);
+    const milestoneSummary = milestoneStore.computeSummary(milestones);
+    const badges = milestoneStore.buildBadges(trust, milestones);
+    return res.json({
+      success: true,
+      profile,
+      trust,
+      milestones,
+      milestoneSummary,
+      badges
+    });
   } catch (err) {
     console.error('dashboard error', err);
     return res.status(500).json({ success: false, error: 'Dashboard lookup failed' });
   }
 });
+
+app.get('/users/:userId/milestones', requireApiKey, async (req, res) => {
+  try {
+    const profile = await profileDb.getProfile(req.params.userId);
+    if (!profile) return res.status(404).json({ success: false, error: 'Profile not found' });
+    const trust = await trustScoreStore.getTrustScore(req.params.userId);
+    const milestones = await milestoneStore.listMilestones(req.params.userId);
+    const summary = milestoneStore.computeSummary(milestones);
+    const badges = milestoneStore.buildBadges(trust, milestones);
+    return res.json({ success: true, milestones, summary, badges });
+  } catch (err) {
+    console.error('milestones list error', err);
+    return res.status(500).json({ success: false, error: 'Milestone lookup failed' });
+  }
+});
+
+app.post('/users/:userId/milestones',
+  requireApiKey,
+  body('title').isString().notEmpty(),
+  body('description').optional().isString(),
+  body('status').optional().isIn(['pending', 'in_progress', 'completed']),
+  body('dueAt').optional().isISO8601(),
+  body('completedAt').optional().isISO8601(),
+  body('tags').optional().isArray(),
+  body('metadata').optional().isObject(),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
+    try {
+      const profile = await profileDb.getProfile(req.params.userId);
+      if (!profile) return res.status(404).json({ success: false, error: 'Profile not found' });
+
+      const milestone = await milestoneStore.addMilestone(req.params.userId, req.body || {});
+      return res.status(201).json({ success: true, milestone });
+    } catch (err) {
+      console.error('milestone create error', err);
+      return res.status(500).json({ success: false, error: err.message || 'Milestone create failed' });
+    }
+  }
+);
+
+app.patch('/users/:userId/milestones/:milestoneId',
+  requireApiKey,
+  body('title').optional().isString().notEmpty(),
+  body('description').optional().isString(),
+  body('status').optional().isIn(['pending', 'in_progress', 'completed']),
+  body('dueAt').optional({ nullable: true }).isISO8601(),
+  body('completedAt').optional({ nullable: true }).isISO8601(),
+  body('tags').optional().isArray(),
+  body('metadata').optional().isObject(),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
+    try {
+      const updated = await milestoneStore.updateMilestone(req.params.userId, req.params.milestoneId, req.body || {});
+      if (!updated) return res.status(404).json({ success: false, error: 'Milestone not found' });
+      return res.json({ success: true, milestone: updated });
+    } catch (err) {
+      console.error('milestone update error', err);
+      return res.status(500).json({ success: false, error: err.message || 'Milestone update failed' });
+    }
+  }
+);
 
 app.post('/auth/sso/token',
   requireApiKey,

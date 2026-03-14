@@ -93,6 +93,13 @@ async function verifyOnChain(proofObj) {
   const RPC_URL = process.env.RPC_URL;
   const AGE_VERIFIER_ADDRESS = process.env.AGE_VERIFIER_ADDRESS;
   if (!RPC_URL || !AGE_VERIFIER_ADDRESS) {
+    if (process.env.NODE_ENV === 'production') {
+      return {
+        onchain: false,
+        verified: false,
+        reason: 'verifier not configured in production'
+      };
+    }
     // Fallback to local (simulated) verification
     return { onchain: false, verified: await zkProof.verifyProof(proofObj), reason: 'verifier not configured' };
   }
