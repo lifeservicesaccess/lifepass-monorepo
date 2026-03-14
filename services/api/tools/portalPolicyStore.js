@@ -6,6 +6,35 @@ const DATA_DIR = path.join(__dirname, '..', '..', 'data');
 const POLICY_OVERRIDE_FILE = path.join(DATA_DIR, 'portal-policy-overrides.json');
 const TRUST_LEVELS = new Set(['bronze', 'silver', 'gold']);
 
+// In-memory cache of the override matrix — kept in sync with both file and DB
+// so that readPolicyOverrideMatrixSync() never needs to do I/O.
+let _overrideCache = null;
+
+let pgClient = null;
+try {
+  const { Client } = require('pg');
+  const conn = process.env.PG_CONNECTION_STRING || process.env.DATABASE_URL;
+  if (conn) {
+    pgClient = new Client({ connectionString: conn });
+    pgClient.connect()
+      .then(() => {
+        // Prime the cache from DB on startup
+        return pgClient.query("SELECT matrix FROM portal_policy_overrides WHERE config_key='default' LIMIT 1");
+      })
+      .then((res) => {
+        if (res && res.rows && res.rows[0]) {
+          _overrideCache = res.rows[0].matrix || {};
+        }
+      })
+      .catch((e) => {
+        console.warn('Policy override store Postgres connect failed; falling back to file DB:', e.message || e);
+        pgClient = null;
+      });
+  }
+} catch (_err) {
+  // pg unavailable
+}
+
 function cloneObject(value) {
   return JSON.parse(JSON.stringify(value || {}));
 }
@@ -76,6 +105,8 @@ function mergePolicyLayers(...layers) {
 }
 
 function readPolicyOverrideMatrixSync() {
+  // Return cached value if available (populated at startup from DB or file)
+  if (_overrideCache !== null) return cloneObject(_overrideCache);
   try {
     const raw = fs.readFileSync(POLICY_OVERRIDE_FILE, 'utf8');
     const parsed = JSON.parse(raw);
@@ -90,6 +121,20 @@ function readPolicyOverrideMatrixSync() {
 
 async function writePolicyOverrideMatrix(matrix) {
   const normalized = normalizePolicyMatrix(matrix);
+  // Update cache immediately so subsequent sync reads see the new value
+  _overrideCache = cloneObject(normalized);
+  if (pgClient) {
+    try {
+      await pgClient.query(
+        `INSERT INTO portal_policy_overrides (config_key,matrix,updated_at) VALUES ('default',$1::jsonb,NOW())
+         ON CONFLICT (config_key) DO UPDATE SET matrix=$1::jsonb,updated_at=NOW()`,
+        [JSON.stringify(normalized)]
+      );
+      return cloneObject(normalized);
+    } catch (e) {
+      console.warn('Policy override pg upsert failed; falling back to file DB:', e.message || e);
+    }
+  }
   await fsp.mkdir(DATA_DIR, { recursive: true });
   await fsp.writeFile(POLICY_OVERRIDE_FILE, JSON.stringify(normalized, null, 2), 'utf8');
   return cloneObject(normalized);

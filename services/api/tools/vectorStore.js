@@ -4,6 +4,21 @@ const path = require('path');
 const DATA_DIR = path.join(__dirname, '..', '..', 'data');
 const VECTOR_FILE = path.join(DATA_DIR, 'embeddings.json');
 
+let pgClient = null;
+try {
+  const { Client } = require('pg');
+  const conn = process.env.PG_CONNECTION_STRING || process.env.DATABASE_URL;
+  if (conn) {
+    pgClient = new Client({ connectionString: conn });
+    pgClient.connect().catch((e) => {
+      console.warn('Vector store Postgres connect failed; falling back to file DB:', e.message || e);
+      pgClient = null;
+    });
+  }
+} catch (_err) {
+  // pg unavailable
+}
+
 async function readVectors() {
   try {
     return JSON.parse(await fs.readFile(VECTOR_FILE, 'utf8'));
@@ -46,21 +61,41 @@ function cosine(a, b) {
 }
 
 async function upsertEmbedding(id, text, metadata = {}) {
+  const vector = embedText(text);
+  const now = new Date().toISOString();
+  if (pgClient) {
+    try {
+      await pgClient.query(
+        `INSERT INTO embeddings (embedding_id,text,vector,metadata,updated_at)
+         VALUES ($1,$2,$3::jsonb,$4::jsonb,$5)
+         ON CONFLICT (embedding_id) DO UPDATE SET text=$2,vector=$3::jsonb,metadata=$4::jsonb,updated_at=$5`,
+        [id, text, JSON.stringify(vector), JSON.stringify(metadata), now]
+      );
+      return { id, text, vector, metadata, updatedAt: now };
+    } catch (e) {
+      console.warn('Vector store pg upsert failed; falling back to file DB:', e.message || e);
+    }
+  }
   const all = await readVectors();
-  all[id] = {
-    id,
-    text,
-    vector: embedText(text),
-    metadata,
-    updatedAt: new Date().toISOString()
-  };
+  all[id] = { id, text, vector, metadata, updatedAt: now };
   await writeVectors(all);
   return all[id];
 }
 
 async function queryEmbeddings(text, limit = 5) {
-  const all = await readVectors();
   const query = embedText(text);
+  if (pgClient) {
+    try {
+      const res = await pgClient.query('SELECT embedding_id AS id,text,vector,metadata,updated_at AS "updatedAt" FROM embeddings');
+      return (res.rows || [])
+        .map((r) => ({ ...r, vector: Array.isArray(r.vector) ? r.vector : Object.values(r.vector || {}), score: cosine(query, Array.isArray(r.vector) ? r.vector : Object.values(r.vector || {})) }))
+        .sort((a, b) => b.score - a.score)
+        .slice(0, Math.max(1, Number(limit) || 5));
+    } catch (e) {
+      console.warn('Vector store pg query failed; falling back to file DB:', e.message || e);
+    }
+  }
+  const all = await readVectors();
   return Object.values(all)
     .map((item) => ({ ...item, score: cosine(query, item.vector) }))
     .sort((a, b) => b.score - a.score)
