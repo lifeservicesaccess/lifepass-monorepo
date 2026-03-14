@@ -50,9 +50,14 @@ $env:DEPLOY_GAS_STRATEGY='provider'; npm run deploy:sbt
 - `GET /pass/qr/:userId` — Generate QR code data URL for LifePass pass
 - `GET /portals/policy-matrix` — Read effective portal covenant policy matrix (API key protected)
 	- `POST /portals/policy-matrix` — Update persisted policy overrides (API key + policy admin key)
+	  - With `POLICY_TWO_PERSON_REQUIRED=1`, returns proposal id and waits for approvals
 	- `POST /portals/policy-matrix/preview` — Preview matrix diff and route impacts without applying (API key + policy admin key)
 	- `GET /portals/policy-snapshots?limit=50` — List policy snapshots (API key + policy admin key)
 	- `POST /portals/policy-snapshots/:snapshotId/restore` — Restore policy from snapshot (API key + policy admin key)
+	  - With `POLICY_TWO_PERSON_REQUIRED=1`, returns proposal id and waits for approvals
+	- `GET /portals/policy-approvals?status=pending&limit=50` — List policy change proposals
+	- `GET /portals/policy-approvals/:proposalId` — Read a policy change proposal
+	- `POST /portals/policy-approvals/:proposalId/approve` — Submit signed approval (`approverId`, `signature`)
 - `GET /portals/access-audit?limit=50` — Read recent portal access decisions (API key protected)
 	- Filters: `decision`, `covenant`, `policyKey`, `userId`
 	- Export: `format=csv`
@@ -101,6 +106,10 @@ $env:DEPLOY_GAS_STRATEGY='provider'; npm run deploy:sbt
 - `POLICY_SNAPSHOT_MAX_ROWS` for retained policy snapshots
 - `PORTAL_DENY_ALERT_THRESHOLD` default deny-alert threshold (overridable via query)
 - `PORTAL_DENY_ALERT_WINDOW_MINUTES` default deny-alert time window in minutes (overridable via query)
+- `POLICY_TWO_PERSON_REQUIRED=1` to require signed multi-approver proposals before apply/restore
+- `POLICY_REQUIRED_APPROVALS` approval threshold (minimum 2)
+- `POLICY_APPROVAL_SIGNING_KEYS_JSON` JSON map of approver IDs to shared HMAC secrets
+- `POLICY_APPROVAL_MAX_ROWS` for proposal retention
 
 ### Health & Startup Checklist
 - `GET /health` returns startup/env readiness checks.

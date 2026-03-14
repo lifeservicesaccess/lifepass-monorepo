@@ -177,9 +177,14 @@ Performs semantic search against stored user-purpose/skills embeddings.
 - `GET /portals/health/age-gated-services` (requires SSO bearer token; min Silver)
 - `GET /portals/policy-matrix` (requires `x-api-key`; returns effective policy matrix)
 - `POST /portals/policy-matrix` (requires `x-api-key` + `x-policy-admin-key`; updates policy override matrix)
+  - When `POLICY_TWO_PERSON_REQUIRED=1`, creates a pending proposal instead of immediate apply
 - `POST /portals/policy-matrix/preview` (requires `x-api-key` + `x-policy-admin-key`; returns diff/impact preview without applying)
 - `GET /portals/policy-snapshots?limit=50` (requires `x-api-key` + `x-policy-admin-key`; returns policy snapshots)
 - `POST /portals/policy-snapshots/:snapshotId/restore` (requires `x-api-key` + `x-policy-admin-key`; restores snapshot)
+  - When `POLICY_TWO_PERSON_REQUIRED=1`, creates a pending proposal instead of immediate restore
+- `GET /portals/policy-approvals?status=pending&limit=50` (requires `x-api-key` + `x-policy-admin-key`; returns pending/executed proposals)
+- `GET /portals/policy-approvals/:proposalId` (requires `x-api-key` + `x-policy-admin-key`; returns proposal details)
+- `POST /portals/policy-approvals/:proposalId/approve` (requires `x-api-key` + `x-policy-admin-key`; body: `approverId`, `signature`)
 - `GET /portals/access-audit?limit=50` (requires `x-api-key`; returns recent allow/deny decisions)
   - Optional filters: `decision`, `covenant`, `policyKey`, `userId`
   - Optional export: `format=csv`
@@ -193,6 +198,7 @@ Policy thresholds are configurable with `LIFEPASS_PORTAL_POLICY_JSON` (JSON map 
 Access decision logs are retained in file-backed storage and trimmed by `PORTAL_ACCESS_AUDIT_MAX_ROWS`.
 Policy admin update routes require `POLICY_ADMIN_KEY`; admin audit retention is controlled by `POLICY_ADMIN_AUDIT_MAX_ROWS`.
 Policy snapshots are retained by `POLICY_SNAPSHOT_MAX_ROWS`. Deny alert defaults are configurable via `PORTAL_DENY_ALERT_THRESHOLD` and `PORTAL_DENY_ALERT_WINDOW_MINUTES`.
+Two-person mode uses `POLICY_TWO_PERSON_REQUIRED`, `POLICY_REQUIRED_APPROVALS`, and `POLICY_APPROVAL_SIGNING_KEYS_JSON` for signed approvals.
 
 ## Future API Extensions
 
