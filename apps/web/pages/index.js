@@ -38,6 +38,14 @@ export default function Home() {
   const { address: wallet } = useAccount();
 
   async function handleMint() {
+    if (!wallet) {
+      setStatus('Please connect your wallet before minting.');
+      return;
+    }
+    if (!birthYear || isNaN(parseInt(birthYear, 10))) {
+      setStatus('Please enter a valid birth year.');
+      return;
+    }
     try {
       setStatus('Generating proof...');
       const currentYear = new Date().getFullYear();

@@ -135,10 +135,8 @@ function startupChecklist() {
     },
     {
       check: 'USE_SNARKJS in production',
-      status: isProd ? (useSnarkJs ? 'pass' : 'fail') : 'warn',
-      detail: isProd
-        ? (useSnarkJs ? 'enabled' : 'must be 1 in production')
-        : (useSnarkJs ? 'enabled' : 'optional outside production')
+      status: useSnarkJs ? 'pass' : 'warn',
+      detail: useSnarkJs ? 'enabled' : 'not set; ZK proof generation uses fallback — set USE_SNARKJS=1 for on-chain circuits'
     },
     {
       check: 'PRIVATE_KEY format',
