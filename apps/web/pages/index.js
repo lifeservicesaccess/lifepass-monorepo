@@ -67,7 +67,8 @@ export default function Home() {
         metadata: meta
       });
       if (!mintRes.data.success) {
-        setStatus('Mint failed: ' + (mintRes.data.error || 'unknown error'));
+        const reasonSuffix = mintRes.data.reason ? ` (reason: ${mintRes.data.reason})` : '';
+        setStatus('Mint failed: ' + (mintRes.data.error || 'unknown error') + reasonSuffix);
       } else {
         if (mintRes.data.simulated) {
           const reasonSuffix = mintRes.data.chainError
@@ -81,7 +82,11 @@ export default function Home() {
     } catch (err) {
       console.error(err);
       const backendError = err?.response?.data?.error;
-      setStatus('Error: ' + (backendError || err.message));
+      const backendReason = err?.response?.data?.reason;
+      const statusCode = err?.response?.status;
+      const detail = backendReason || err.message;
+      const codeSuffix = statusCode ? ` [${statusCode}]` : '';
+      setStatus('Error' + codeSuffix + ': ' + (backendError || 'request failed') + (detail ? ` (reason: ${detail})` : ''));
     }
   }
 

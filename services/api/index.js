@@ -644,7 +644,7 @@ app.post('/sbt/mint', async (req, res) => {
 
       return res.status(502).json({
         success: false,
-        error: 'On-chain mint failed',
+        error: `On-chain mint failed: ${chainReason}`,
         reason: chainReason
       });
     }
@@ -675,7 +675,8 @@ app.post('/sbt/mint', async (req, res) => {
     res.json({ success: true, txHash: tx.hash });
   } catch (err) {
     console.error('sbt/mint error', err);
-    res.status(500).json({ success: false, error: 'Error minting token', reason: parseEvmError(err) });
+    const reason = parseEvmError(err);
+    res.status(500).json({ success: false, error: `Error minting token: ${reason}`, reason });
   }
 });
 
