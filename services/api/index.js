@@ -12,6 +12,8 @@ const ssoAuth = require('./tools/ssoAuth');
 const passQr = require('./tools/passQr');
 const { readPolicyMatrix } = require('./portals/policyMatrix');
 const portalAccessAuditStore = require('./tools/portalAccessAuditStore');
+const portalPolicyStore = require('./tools/portalPolicyStore');
+const policyAdminAuditStore = require('./tools/policyAdminAuditStore');
 const vectorStore = require('./tools/vectorStore');
 const chatGuide = require('./tools/chatGuide');
 const { createPortalRouter } = require('./portals/router');
@@ -424,6 +426,18 @@ function requireSsoConfigured(req, res, next) {
   const config = ssoAuth.getSsoConfig();
   if (!config.configured) {
     return res.status(503).json({ success: false, error: 'SSO is not configured' });
+  }
+  return next();
+}
+
+function requirePolicyAdminKey(req, res, next) {
+  const expected = process.env.POLICY_ADMIN_KEY;
+  if (!expected) {
+    return res.status(503).json({ success: false, error: 'POLICY_ADMIN_KEY is not configured' });
+  }
+  const provided = req.header('x-policy-admin-key');
+  if (!provided || provided !== expected) {
+    return res.status(403).json({ success: false, error: 'Forbidden: invalid policy admin key' });
   }
   return next();
 }
@@ -982,6 +996,70 @@ app.get('/pass/qr/:userId', async (req, res) => {
 app.get('/portals/policy-matrix', requireApiKey, (_req, res) => {
   const matrix = readPolicyMatrix();
   return res.json({ success: true, matrix });
+});
+
+app.post('/portals/policy-matrix',
+  requireApiKey,
+  requirePolicyAdminKey,
+  body('matrix').isObject(),
+  body('replace').optional().isBoolean(),
+  body('reason').optional().isString(),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
+
+    try {
+      const actor = req.header('x-admin-actor') || 'unknown';
+      const reason = (req.body.reason || '').trim();
+      const replace = Boolean(req.body.replace);
+
+      const incoming = portalPolicyStore.normalizePolicyMatrix(req.body.matrix || {});
+      const previousOverrides = portalPolicyStore.readPolicyOverrideMatrixSync();
+      const nextOverrides = replace
+        ? incoming
+        : portalPolicyStore.mergePolicyLayers(previousOverrides, incoming);
+
+      await portalPolicyStore.writePolicyOverrideMatrix(nextOverrides);
+
+      await policyAdminAuditStore.appendPolicyAdminAuditEvent({
+        at: new Date().toISOString(),
+        actor,
+        action: 'policy_matrix_update',
+        reason,
+        replace,
+        changedCovenants: Object.keys(incoming),
+        changedPolicyKeys: Object.fromEntries(
+          Object.entries(incoming).map(([covenant, rules]) => [covenant, Object.keys(rules || {})])
+        )
+      });
+
+      return res.json({
+        success: true,
+        message: 'Portal policy matrix updated',
+        matrix: readPolicyMatrix(),
+        overrides: nextOverrides
+      });
+    } catch (err) {
+      if (String(err.message || '').includes('matrix.')) {
+        return res.status(400).json({ success: false, error: err.message });
+      }
+      console.error('portals/policy-matrix update error', err);
+      return res.status(500).json({ success: false, error: 'Failed to update portal policy matrix' });
+    }
+  }
+);
+
+app.get('/portals/policy-admin/audit', requireApiKey, requirePolicyAdminKey, async (req, res) => {
+  try {
+    const limitRaw = Number(req.query.limit || 50);
+    const limit = Math.max(1, Math.min(500, Number.isFinite(limitRaw) ? limitRaw : 50));
+    const events = await policyAdminAuditStore.readPolicyAdminAuditEvents();
+    const sliced = events.slice(-limit);
+    return res.json({ success: true, count: sliced.length, events: sliced });
+  } catch (err) {
+    console.error('portals/policy-admin/audit error', err);
+    return res.status(500).json({ success: false, error: 'Failed to read policy admin audit events' });
+  }
 });
 
 app.get('/portals/access-audit', requireApiKey, async (req, res) => {

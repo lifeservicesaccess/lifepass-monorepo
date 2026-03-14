@@ -9,7 +9,10 @@ const API_PORT = 3018;
 const API_BASE = `http://127.0.0.1:${API_PORT}`;
 const API_CWD = __dirname + '/..';
 const API_KEY = 'test-key-portal';
+const POLICY_ADMIN_KEY = 'test-policy-admin-key';
 const AUDIT_FILE = path.join(API_CWD, '..', 'data', 'portal-access-audit.json');
+const POLICY_OVERRIDE_FILE = path.join(API_CWD, '..', 'data', 'portal-policy-overrides.json');
+const POLICY_ADMIN_AUDIT_FILE = path.join(API_CWD, '..', 'data', 'portal-policy-admin-audit.json');
 
 function requestJson(path, method = 'GET', payload = null, headers = {}, baseUrl = API_BASE) {
   return new Promise((resolve, reject) => {
@@ -85,6 +88,7 @@ function startApiServer(port = API_PORT, extraEnv = {}) {
         ...process.env,
         PORT: String(port),
         API_KEY,
+        POLICY_ADMIN_KEY,
         LIFEPASS_SSO_JWT_SECRET: 'test-sso-secret',
         LIFEPASS_SSO_JWT_ISSUER: 'lifepass-api-test',
         LIFEPASS_SSO_DEFAULT_AUDIENCE: 'zionstack-portals',
@@ -159,6 +163,8 @@ let server;
 test.before(async () => {
   await fs.mkdir(path.dirname(AUDIT_FILE), { recursive: true });
   await fs.writeFile(AUDIT_FILE, '[]', 'utf8');
+  await fs.writeFile(POLICY_OVERRIDE_FILE, '{}', 'utf8');
+  await fs.writeFile(POLICY_ADMIN_AUDIT_FILE, '[]', 'utf8');
   server = await startApiServer();
 });
 
@@ -311,4 +317,65 @@ test('policy matrix override can lower trust threshold via env config', async ()
   } finally {
     if (!overrideServer.killed) overrideServer.kill();
   }
+});
+
+test('policy matrix update requires policy admin key', async () => {
+  const denied = await requestJson('/portals/policy-matrix', 'POST', {
+    matrix: {
+      health: {
+        ageGatedServices: { minTrustLevel: 'bronze' }
+      }
+    }
+  }, {
+    'x-api-key': API_KEY
+  });
+
+  assert.equal(denied.status, 403);
+  assert.equal(denied.body.success, false);
+});
+
+test('policy admin update changes enforcement and writes admin audit trail', async () => {
+  const userId = `portal-admin-${Date.now()}`;
+  await setTrust(userId, 35);
+  const token = await issueTokenForUser(userId);
+
+  const before = await requestJson('/portals/health/age-gated-services', 'GET', null, {
+    Authorization: `Bearer ${token}`
+  });
+  assert.equal(before.status, 403);
+
+  const updated = await requestJson('/portals/policy-matrix', 'POST', {
+    matrix: {
+      health: {
+        ageGatedServices: { minTrustLevel: 'bronze' }
+      }
+    },
+    reason: 'test policy update'
+  }, {
+    'x-api-key': API_KEY,
+    'x-policy-admin-key': POLICY_ADMIN_KEY,
+    'x-admin-actor': 'integration-test'
+  });
+
+  assert.equal(updated.status, 200);
+  assert.equal(updated.body.success, true);
+  assert.equal(updated.body.matrix.health.ageGatedServices.minTrustLevel, 'bronze');
+
+  const after = await requestJson('/portals/health/age-gated-services', 'GET', null, {
+    Authorization: `Bearer ${token}`
+  });
+  assert.equal(after.status, 200);
+
+  const audit = await requestJson('/portals/policy-admin/audit?limit=20', 'GET', null, {
+    'x-api-key': API_KEY,
+    'x-policy-admin-key': POLICY_ADMIN_KEY
+  });
+
+  assert.equal(audit.status, 200);
+  assert.equal(audit.body.success, true);
+  assert.ok(Array.isArray(audit.body.events));
+  assert.ok(audit.body.events.length >= 1);
+  const latest = audit.body.events[audit.body.events.length - 1];
+  assert.equal(latest.action, 'policy_matrix_update');
+  assert.equal(latest.actor, 'integration-test');
 });
