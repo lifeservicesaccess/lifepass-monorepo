@@ -177,6 +177,8 @@ Performs semantic search against stored user-purpose/skills embeddings.
 - `GET /portals/health/age-gated-services` (requires SSO bearer token; min Silver)
 - `GET /portals/policy-matrix` (requires `x-api-key`; returns effective policy matrix)
 - `GET /portals/access-audit?limit=50` (requires `x-api-key`; returns recent allow/deny decisions)
+  - Optional filters: `decision`, `covenant`, `policyKey`, `userId`
+  - Optional export: `format=csv`
 
 For protected portal routes, pass `Authorization: Bearer <token>` where token is created by `/auth/sso/token`.
 
