@@ -68,6 +68,8 @@ jobs:
 
 Adjust the workflow as needed for deployment steps and additional services.  Store secrets (e.g., RPC URLs, private keys) in GitHub repository secrets and reference them in the workflow.
 
+For stricter release gating, set `REQUIRE_AGE_VERIFIER=1` together with `STARTUP_STRICT=1` so CI/runtime startup fails when `AGE_VERIFIER_ADDRESS` is missing or invalid.
+
 For Sprint 1, keep SQL migration artifacts under `services/api/db/migrations/` and enforce their presence with `npm run check:schema`.
 
 ## Optional SNARK CI Stage
