@@ -20,6 +20,18 @@ function apiPath(pathname) {
   return `${configured}${pathname}`;
 }
 
+function apiTargetLabel() {
+  const configured = normalizeBaseUrl(process.env.NEXT_PUBLIC_API_BASE_URL);
+  if (configured) return configured;
+
+  if (process.env.NODE_ENV === 'development') {
+    const rewriteTarget = normalizeBaseUrl(process.env.LOCAL_API_BASE_URL || 'http://localhost:3003');
+    return `relative paths (dev rewrite -> ${rewriteTarget})`;
+  }
+
+  return 'relative paths (same origin)';
+}
+
 /**
  * Home page for the LifePass web portal.  This simple interface allows a user to
  * input their birth year and wallet address, submit a zero‑knowledge proof of
@@ -30,6 +42,7 @@ function apiPath(pathname) {
 export default function Home() {
   const [birthYear, setBirthYear] = useState('');
   const [status, setStatus] = useState('');
+  const apiTarget = apiTargetLabel();
 
   // Retrieve the connected wallet address from wagmi.  When the user
   // connects their wallet via the ConnectButton, this hook will update.
@@ -92,6 +105,10 @@ export default function Home() {
 
   return (
     <main className="max-w-xl mx-auto mt-8 p-4">
+      <div className="mb-3 rounded border border-slate-300 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+        <span className="font-semibold">API target:</span>{' '}
+        <span className="font-mono break-all">{apiTarget}</span>
+      </div>
       <h1 className="text-2xl font-semibold mb-2">LifePass SBT Minting</h1>
       <p className="text-sm mb-2">
         <Link className="underline" href="/signup">Onboarding</Link>
