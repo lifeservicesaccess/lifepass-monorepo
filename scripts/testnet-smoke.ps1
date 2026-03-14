@@ -252,9 +252,15 @@ function Invoke-SmokeTests {
     }
 
     Write-Host "Running test_verify_onchain.js..." -ForegroundColor Cyan
-    node scripts/test_verify_onchain.js
+    $verifyOutput = node scripts/test_verify_onchain.js 2>&1 | Out-String
+    if (-not [string]::IsNullOrWhiteSpace($verifyOutput)) {
+      Write-Host $verifyOutput.TrimEnd()
+    }
     if ($LASTEXITCODE -ne 0) {
       throw 'scripts/test_verify_onchain.js failed.'
+    }
+    if ($verifyOutput -notmatch 'status\s+200\b') {
+      throw 'scripts/test_verify_onchain.js did not return HTTP 200.'
     }
 
     if ($Mode -eq 'testnet' -and -not $AllowSimulatedMint) {

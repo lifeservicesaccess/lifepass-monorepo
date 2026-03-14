@@ -1,4 +1,13 @@
 const http = require('http');
+const { loadApiEnv } = require('../tools/loadEnv');
+
+loadApiEnv();
+
+const apiKey = process.env.API_KEY;
+if (!apiKey) {
+  console.error('Missing API_KEY for /proof/verify-onchain smoke check');
+  process.exit(1);
+}
 
 const payload = JSON.stringify({ publicSignals: { is_over_18: 1 }, proof: '0x1234' });
 const options = {
@@ -8,7 +17,8 @@ const options = {
   method: 'POST',
   headers: {
     'Content-Type': 'application/json',
-    'Content-Length': Buffer.byteLength(payload)
+    'Content-Length': Buffer.byteLength(payload),
+    'x-api-key': apiKey
   }
 };
 
