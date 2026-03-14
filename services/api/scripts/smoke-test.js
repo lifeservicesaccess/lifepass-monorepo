@@ -1,6 +1,11 @@
 const http = require('http');
+const { loadApiEnv } = require('../tools/loadEnv');
 
-function post(path, data) {
+loadApiEnv();
+
+const apiKey = process.env.API_KEY || '';
+
+function post(path, data, extraHeaders = {}) {
   return new Promise((resolve, reject) => {
     const payload = JSON.stringify(data);
     const options = {
@@ -11,6 +16,7 @@ function post(path, data) {
       headers: {
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(payload),
+        ...extraHeaders,
       },
     };
 
@@ -35,11 +41,12 @@ function post(path, data) {
     console.log(r.statusCode, r.body);
 
     console.log('\n-> POST /sbt/mint');
+    const mintHeaders = apiKey ? { 'x-api-key': apiKey } : {};
     r = await post('/sbt/mint', {
       to: '0x0000000000000000000000000000000000000001',
       tokenId,
       metadata: { purpose: 'Test', trustScore: 0, verificationLevel: 'Silver', didUri: '' },
-    });
+    }, mintHeaders);
     console.log(r.statusCode, r.body);
   } catch (err) {
     console.error('Error during smoke test:', err.message || err);

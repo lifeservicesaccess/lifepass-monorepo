@@ -154,6 +154,7 @@ function Show-PreflightSummary {
       RPC_URL = $rpcUrl
       SBT_CONTRACT_ADDRESS = $sbtAddress
       USE_SNARKJS = $useSnark
+      API_KEY = (Get-Value -Name 'API_KEY' -ApiLocal $apiLocal -Api $api -WebLocal $webLocal -Web $web)
     }
   }
 }
@@ -232,7 +233,8 @@ function Invoke-SmokeTests {
     [string]$ApiDir,
     [string]$Mode,
     [bool]$AllowSimulatedMint,
-    [bool]$UseSnark
+    [bool]$UseSnark,
+    [string]$ApiKey
   )
 
   Write-Host "Running smoke-test.js..." -ForegroundColor Cyan
@@ -277,7 +279,11 @@ function Invoke-SmokeTests {
         }
       } | ConvertTo-Json -Depth 5
 
-      $resp = Invoke-RestMethod -Uri 'http://localhost:3003/sbt/mint' -Method Post -ContentType 'application/json' -Body $payload
+      $headers = @{}
+      if (-not [string]::IsNullOrWhiteSpace($ApiKey)) {
+        $headers['x-api-key'] = $ApiKey
+      }
+      $resp = Invoke-RestMethod -Uri 'http://localhost:3003/sbt/mint' -Method Post -ContentType 'application/json' -Headers $headers -Body $payload
       if ($resp.simulated -eq $true) {
         throw 'Testnet mode is still returning simulated mint. Ensure RPC_URL, PRIVATE_KEY, and SBT_CONTRACT_ADDRESS are valid.'
       }
@@ -348,7 +354,7 @@ try {
     throw "API did not become ready on port 3003. STDERR:`n$stderr"
   }
 
-  Invoke-SmokeTests -ApiDir $apiDir -Mode $Mode -AllowSimulatedMint:$AllowSimulatedMint -UseSnark:($preflight.Values.USE_SNARKJS -eq '1')
+  Invoke-SmokeTests -ApiDir $apiDir -Mode $Mode -AllowSimulatedMint:$AllowSimulatedMint -UseSnark:($preflight.Values.USE_SNARKJS -eq '1') -ApiKey $preflight.Values.API_KEY
 
   Write-Host ''
   Write-Host 'Smoke run complete: PASS' -ForegroundColor Green

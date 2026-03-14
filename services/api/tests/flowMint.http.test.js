@@ -8,8 +8,9 @@ const profileDb = require('../tools/profileDb');
 const API_PORT = 3014;
 const API_BASE = `http://127.0.0.1:${API_PORT}`;
 const API_CWD = __dirname + '/..';
+const API_KEY = 'test-api-key-flow';
 
-function postJson(path, payload) {
+function postJson(path, payload, headers = {}) {
   return new Promise((resolve, reject) => {
     const body = JSON.stringify(payload);
     const req = http.request(
@@ -18,7 +19,8 @@ function postJson(path, payload) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(body)
+          'Content-Length': Buffer.byteLength(body),
+          ...headers
         }
       },
       (res) => {
@@ -50,7 +52,8 @@ function startApiServer() {
       cwd: API_CWD,
       env: {
         ...process.env,
-        PORT: String(API_PORT)
+        PORT: String(API_PORT),
+        API_KEY
       },
       stdio: ['ignore', 'pipe', 'pipe']
     });
@@ -101,7 +104,7 @@ test.after(() => {
 });
 
 test('POST /flow/mint returns 404 when profile is missing', async () => {
-  const res = await postJson('/flow/mint', { userId: 'missing-user' });
+  const res = await postJson('/flow/mint', { userId: 'missing-user' }, { 'x-api-key': API_KEY });
   assert.equal(res.status, 404);
   assert.deepEqual(res.body, {
     success: false,
@@ -110,7 +113,7 @@ test('POST /flow/mint returns 404 when profile is missing', async () => {
 });
 
 test('POST /flow/mint returns 200 and submitted result for eligible profile', async () => {
-  const res = await postJson('/flow/mint', { userId: 'user-over18-test' });
+  const res = await postJson('/flow/mint', { userId: 'user-over18-test' }, { 'x-api-key': API_KEY });
 
   assert.equal(res.status, 200);
   assert.equal(res.body.success, true);
@@ -131,16 +134,16 @@ test('POST /flow/mint returns 409 when mint is attempted twice for same profile'
     verificationStatus: 'approved'
   });
 
-  const first = await postJson('/flow/mint', { userId });
+  const first = await postJson('/flow/mint', { userId }, { 'x-api-key': API_KEY });
   assert.equal(first.status, 200);
   assert.equal(first.body.success, true);
 
-  let second = await postJson('/flow/mint', { userId });
+  let second = await postJson('/flow/mint', { userId }, { 'x-api-key': API_KEY });
   // File-backed fallback storage can have brief write lag under parallel CI test runners.
   // Retry once if first duplicate check races with persistence.
   if (second.status !== 409) {
     await new Promise((resolve) => setTimeout(resolve, 75));
-    second = await postJson('/flow/mint', { userId });
+    second = await postJson('/flow/mint', { userId }, { 'x-api-key': API_KEY });
   }
 
   assert.equal(second.status, 409);
@@ -151,7 +154,7 @@ test('POST /flow/mint returns 409 when mint is attempted twice for same profile'
 });
 
 test('POST /flow/mint returns 400 for under-18 profile', async () => {
-  const res = await postJson('/flow/mint', { userId: 'user-under18-test' });
+  const res = await postJson('/flow/mint', { userId: 'user-under18-test' }, { 'x-api-key': API_KEY });
 
   assert.equal(res.status, 400);
   assert.equal(res.body.success, false);

@@ -81,7 +81,8 @@ function startupChecklist() {
   const hasRpc = Boolean(RPC_URL);
   const hasPk = Boolean(PRIVATE_KEY);
   const hasSbtAddress = Boolean(SBT_CONTRACT_ADDRESS);
-  const requireAgeVerifier = process.env.REQUIRE_AGE_VERIFIER === '1';
+  const requireAgeVerifier = process.env.REQUIRE_AGE_VERIFIER === '1' || isProd;
+  const useSnarkJs = process.env.USE_SNARKJS === '1';
   const policyPreconditions = getPolicyExecutionPreconditions();
   const blockchainReady = hasRpc && hasPk && hasSbtAddress;
   const hasCorsAllowlist = CORS_ALLOW_ALL || CORS_ALLOWED_ORIGINS.length > 0;
@@ -101,8 +102,15 @@ function startupChecklist() {
     },
     {
       check: 'API_KEY set',
-      status: process.env.API_KEY ? 'pass' : (isProd ? 'warn' : 'warn'),
+      status: process.env.API_KEY ? 'pass' : (isProd ? 'fail' : 'warn'),
       detail: process.env.API_KEY ? 'protected endpoints require x-api-key' : 'not set; protected endpoints are open'
+    },
+    {
+      check: 'USE_SNARKJS in production',
+      status: isProd ? (useSnarkJs ? 'pass' : 'fail') : 'warn',
+      detail: isProd
+        ? (useSnarkJs ? 'enabled' : 'must be 1 in production')
+        : (useSnarkJs ? 'enabled' : 'optional outside production')
     },
     {
       check: 'PRIVATE_KEY format',
@@ -599,7 +607,7 @@ app.post('/proof/verify-onchain',
  * expects the caller to provide the recipient address, token ID, and metadata object.  The
  * server signs and sends the transaction via ethers.js.
  */
-app.post('/sbt/mint', async (req, res) => {
+app.post('/sbt/mint', requireApiKey, async (req, res) => {
   try {
     const { to, tokenId, metadata, userId } = req.body;
     if (!to || !tokenId || !metadata) {
@@ -679,6 +687,7 @@ app.post('/sbt/mint', async (req, res) => {
     res.status(500).json({ success: false, error: `Error minting token: ${reason}`, reason });
   }
 });
+
 
 // Integrate PurposeGuide agent with mock tools
 const PurposeGuide = require('../../agents/purpose_guide_agent');

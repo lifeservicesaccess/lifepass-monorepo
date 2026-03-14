@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const {
+  verifyOnChain,
   normalizeProofBytes,
   normalizePublicSignals
 } = require('../tools/onchainVerifier');
@@ -46,4 +47,25 @@ test('normalizePublicSignals rejects invalid and negative values', () => {
 test('normalizePublicSignals rejects unsupported payload shapes', () => {
   assert.throws(() => normalizePublicSignals(null), /Missing publicSignals payload/);
   assert.throws(() => normalizePublicSignals('1'), /Invalid publicSignals format/);
+});
+
+test('verifyOnChain blocks local fallback in production when verifier is missing', async () => {
+  const prevNodeEnv = process.env.NODE_ENV;
+  const prevRpc = process.env.RPC_URL;
+  const prevVerifier = process.env.AGE_VERIFIER_ADDRESS;
+
+  process.env.NODE_ENV = 'production';
+  process.env.RPC_URL = '';
+  process.env.AGE_VERIFIER_ADDRESS = '';
+
+  try {
+    const result = await verifyOnChain({ proof: '0x1234', publicSignals: { is_over_18: 1 } });
+    assert.equal(result.onchain, false);
+    assert.equal(result.verified, false);
+    assert.match(String(result.reason || ''), /verifier not configured in production/);
+  } finally {
+    process.env.NODE_ENV = prevNodeEnv;
+    process.env.RPC_URL = prevRpc;
+    process.env.AGE_VERIFIER_ADDRESS = prevVerifier;
+  }
 });

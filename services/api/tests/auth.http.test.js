@@ -126,3 +126,28 @@ test('POST /proof/verify-onchain accepts API key and returns verifier result', a
   assert.equal(res.body.success, true);
   assert.ok(res.body.result);
 });
+
+test('POST /sbt/mint returns 401 without API key', async () => {
+  const res = await postJson('/sbt/mint', {
+    to: '0x0000000000000000000000000000000000000001',
+    tokenId: 123456,
+    metadata: { purpose: 'Auth test', trustScore: 0, verificationLevel: 'Silver', didUri: '' }
+  });
+
+  assert.equal(res.status, 401);
+  assert.deepEqual(res.body, { success: false, error: 'Unauthorized' });
+});
+
+test('POST /sbt/mint accepts API key and proceeds to business logic', async () => {
+  const res = await postJson('/sbt/mint', {
+    to: '0x0000000000000000000000000000000000000001',
+    tokenId: 123457,
+    metadata: { purpose: 'Auth test', trustScore: 0, verificationLevel: 'Silver', didUri: '' }
+  }, {
+    'x-api-key': API_KEY
+  });
+
+  // With auth satisfied, route should continue into mint logic and return either
+  // a tx response or a chain-domain error, but not auth failure.
+  assert.notEqual(res.status, 401);
+});
