@@ -49,9 +49,11 @@ $env:DEPLOY_GAS_STRATEGY='provider'; npm run deploy:sbt
 - `GET /pass/qr-payload/:userId` — Generate QR payload for mobile pass
 - `GET /pass/qr/:userId` — Generate QR code data URL for LifePass pass
 - `GET /portals/policy-matrix` — Read effective portal covenant policy matrix (API key protected)
+	- `POST /portals/policy-matrix` — Update persisted policy overrides (API key + policy admin key)
 - `GET /portals/access-audit?limit=50` — Read recent portal access decisions (API key protected)
 	- Filters: `decision`, `covenant`, `policyKey`, `userId`
 	- Export: `format=csv`
+	- `GET /portals/policy-admin/audit?limit=50` — Read policy admin update audit events (API key + policy admin key)
 - `GET /portals/commons/me` — Return verified portal identity (Bearer token)
 - `GET /portals/health/age-gated-services` — Silver+ route via portal policy
 - `GET /users/:userId/dashboard` — Return profile + trust score
@@ -90,6 +92,8 @@ $env:DEPLOY_GAS_STRATEGY='provider'; npm run deploy:sbt
 - `LIFEPASS_SSO_JWT_EXPIRES_IN` (default `15m`)
 - `LIFEPASS_PORTAL_POLICY_JSON` for covenant policy overrides (e.g. route trust thresholds)
 - `PORTAL_ACCESS_AUDIT_MAX_ROWS` for portal decision log retention
+- `POLICY_ADMIN_KEY` for secured policy-matrix updates and admin-audit endpoints
+- `POLICY_ADMIN_AUDIT_MAX_ROWS` for policy admin audit retention
 
 ### Health & Startup Checklist
 - `GET /health` returns startup/env readiness checks.

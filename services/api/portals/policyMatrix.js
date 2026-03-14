@@ -1,3 +1,5 @@
+const portalPolicyStore = require('../tools/portalPolicyStore');
+
 const DEFAULT_POLICY_MATRIX = {
   commons: {
     me: { minTrustLevel: 'bronze', audience: 'zionstack-portals' }
@@ -26,23 +28,9 @@ function parseCustomMatrix() {
 }
 
 function readPolicyMatrix() {
-  const custom = parseCustomMatrix();
-  return {
-    ...DEFAULT_POLICY_MATRIX,
-    ...custom,
-    commons: {
-      ...DEFAULT_POLICY_MATRIX.commons,
-      ...(custom.commons || {})
-    },
-    agri: {
-      ...DEFAULT_POLICY_MATRIX.agri,
-      ...(custom.agri || {})
-    },
-    health: {
-      ...DEFAULT_POLICY_MATRIX.health,
-      ...(custom.health || {})
-    }
-  };
+  const envCustom = parseCustomMatrix();
+  const adminOverrides = portalPolicyStore.readPolicyOverrideMatrixSync();
+  return portalPolicyStore.mergePolicyLayers(DEFAULT_POLICY_MATRIX, envCustom, adminOverrides);
 }
 
 function getPolicy(covenant, policyKey, fallback = {}) {
