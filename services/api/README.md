@@ -50,9 +50,13 @@ $env:DEPLOY_GAS_STRATEGY='provider'; npm run deploy:sbt
 - `GET /pass/qr/:userId` — Generate QR code data URL for LifePass pass
 - `GET /portals/policy-matrix` — Read effective portal covenant policy matrix (API key protected)
 	- `POST /portals/policy-matrix` — Update persisted policy overrides (API key + policy admin key)
+	- `POST /portals/policy-matrix/preview` — Preview matrix diff and route impacts without applying (API key + policy admin key)
+	- `GET /portals/policy-snapshots?limit=50` — List policy snapshots (API key + policy admin key)
+	- `POST /portals/policy-snapshots/:snapshotId/restore` — Restore policy from snapshot (API key + policy admin key)
 - `GET /portals/access-audit?limit=50` — Read recent portal access decisions (API key protected)
 	- Filters: `decision`, `covenant`, `policyKey`, `userId`
 	- Export: `format=csv`
+	- `GET /portals/access-audit/alerts` — Covenant deny-spike alerts (`threshold`, `windowMinutes`) (API key + policy admin key)
 	- `GET /portals/policy-admin/audit?limit=50` — Read policy admin update audit events (API key + policy admin key)
 - `GET /portals/commons/me` — Return verified portal identity (Bearer token)
 - `GET /portals/health/age-gated-services` — Silver+ route via portal policy
@@ -94,6 +98,9 @@ $env:DEPLOY_GAS_STRATEGY='provider'; npm run deploy:sbt
 - `PORTAL_ACCESS_AUDIT_MAX_ROWS` for portal decision log retention
 - `POLICY_ADMIN_KEY` for secured policy-matrix updates and admin-audit endpoints
 - `POLICY_ADMIN_AUDIT_MAX_ROWS` for policy admin audit retention
+- `POLICY_SNAPSHOT_MAX_ROWS` for retained policy snapshots
+- `PORTAL_DENY_ALERT_THRESHOLD` default deny-alert threshold (overridable via query)
+- `PORTAL_DENY_ALERT_WINDOW_MINUTES` default deny-alert time window in minutes (overridable via query)
 
 ### Health & Startup Checklist
 - `GET /health` returns startup/env readiness checks.
