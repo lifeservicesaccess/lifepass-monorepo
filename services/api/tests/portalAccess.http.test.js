@@ -47,6 +47,36 @@ function requestJson(path, method = 'GET', payload = null, headers = {}, baseUrl
   });
 }
 
+function requestRaw(path, method = 'GET', payload = null, headers = {}, baseUrl = API_BASE) {
+  return new Promise((resolve, reject) => {
+    const body = payload ? JSON.stringify(payload) : '';
+    const req = http.request(
+      `${baseUrl}${path}`,
+      {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          ...(body ? { 'Content-Length': Buffer.byteLength(body) } : {}),
+          ...headers
+        }
+      },
+      (res) => {
+        let raw = '';
+        res.on('data', (chunk) => {
+          raw += chunk;
+        });
+        res.on('end', () => {
+          resolve({ status: res.statusCode, body: raw, headers: res.headers });
+        });
+      }
+    );
+
+    req.on('error', reject);
+    if (body) req.write(body);
+    req.end();
+  });
+}
+
 function startApiServer(port = API_PORT, extraEnv = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn('node', ['index.js'], {
@@ -216,6 +246,42 @@ test('access decisions are recorded in portal audit log', async () => {
   const hasDeny = audit.body.events.some((evt) => evt.decision === 'deny');
   assert.equal(hasAllow, true);
   assert.equal(hasDeny, true);
+});
+
+test('access audit supports filtering by decision and covenant', async () => {
+  const userId = `portal-filter-${Date.now()}`;
+  await setTrust(userId, 70);
+  const token = await issueTokenForUser(userId);
+
+  const allow = await requestJson('/portals/commons/me', 'GET', null, {
+    Authorization: `Bearer ${token}`
+  });
+  assert.equal(allow.status, 200);
+
+  const deny = await requestJson('/portals/agri/requests', 'GET', null);
+  assert.equal(deny.status, 401);
+
+  const filtered = await requestJson('/portals/access-audit?decision=deny&covenant=agri&limit=20', 'GET', null, {
+    'x-api-key': API_KEY
+  });
+  assert.equal(filtered.status, 200);
+  assert.equal(filtered.body.success, true);
+  assert.ok(Array.isArray(filtered.body.events));
+  assert.ok(filtered.body.events.length >= 1);
+  for (const evt of filtered.body.events) {
+    assert.equal(evt.decision, 'deny');
+    assert.equal(evt.covenant, 'agri');
+  }
+});
+
+test('access audit supports CSV export format', async () => {
+  const csv = await requestRaw('/portals/access-audit?format=csv&limit=5', 'GET', null, {
+    'x-api-key': API_KEY
+  });
+
+  assert.equal(csv.status, 200);
+  assert.match(String(csv.headers['content-type'] || ''), /text\/csv/);
+  assert.match(csv.body, /at,method,path,covenant,policyKey,decision,status/);
 });
 
 test('policy matrix override can lower trust threshold via env config', async () => {

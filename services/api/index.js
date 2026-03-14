@@ -200,6 +200,34 @@ function parseEvmError(err) {
   return String(err);
 }
 
+function toCsvValue(value) {
+  const text = value == null ? '' : String(value);
+  if (/[",\n]/.test(text)) {
+    return `"${text.replace(/"/g, '""')}"`;
+  }
+  return text;
+}
+
+function toAccessAuditCsv(events) {
+  const headers = [
+    'at',
+    'method',
+    'path',
+    'covenant',
+    'policyKey',
+    'decision',
+    'status',
+    'requiredTrustLevel',
+    'actualTrustLevel',
+    'userId',
+    'reason',
+    'trustScore'
+  ];
+
+  const rows = events.map((evt) => headers.map((key) => toCsvValue(evt[key])));
+  return [headers.join(','), ...rows.map((row) => row.join(','))].join('\n');
+}
+
 // Production CORS allowlist: set CORS_ALLOWED_ORIGINS="https://app.example,https://preview.example"
 app.use((req, res, next) => {
   const origin = req.headers.origin;
@@ -960,11 +988,37 @@ app.get('/portals/access-audit', requireApiKey, async (req, res) => {
   try {
     const limitRaw = Number(req.query.limit || 50);
     const limit = Math.max(1, Math.min(500, Number.isFinite(limitRaw) ? limitRaw : 50));
+    const decision = req.query.decision ? String(req.query.decision).toLowerCase() : '';
+    const covenant = req.query.covenant ? String(req.query.covenant).toLowerCase() : '';
+    const policyKey = req.query.policyKey ? String(req.query.policyKey).toLowerCase() : '';
+    const userId = req.query.userId ? String(req.query.userId).toLowerCase() : '';
+    const format = req.query.format ? String(req.query.format).toLowerCase() : 'json';
+
     const events = await portalAccessAuditStore.readAuditEvents();
+    const filtered = events.filter((evt) => {
+      if (decision && String(evt.decision || '').toLowerCase() !== decision) return false;
+      if (covenant && String(evt.covenant || '').toLowerCase() !== covenant) return false;
+      if (policyKey && String(evt.policyKey || '').toLowerCase() !== policyKey) return false;
+      if (userId && String(evt.userId || '').toLowerCase() !== userId) return false;
+      return true;
+    });
+    const sliced = filtered.slice(-limit);
+
+    if (format === 'csv') {
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      return res.status(200).send(toAccessAuditCsv(sliced));
+    }
+
     return res.json({
       success: true,
-      count: Math.min(limit, events.length),
-      events: events.slice(-limit)
+      count: sliced.length,
+      filters: {
+        decision: decision || null,
+        covenant: covenant || null,
+        policyKey: policyKey || null,
+        userId: userId || null
+      },
+      events: sliced
     });
   } catch (err) {
     console.error('portals/access-audit error', err);

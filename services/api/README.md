@@ -50,6 +50,8 @@ $env:DEPLOY_GAS_STRATEGY='provider'; npm run deploy:sbt
 - `GET /pass/qr/:userId` — Generate QR code data URL for LifePass pass
 - `GET /portals/policy-matrix` — Read effective portal covenant policy matrix (API key protected)
 - `GET /portals/access-audit?limit=50` — Read recent portal access decisions (API key protected)
+	- Filters: `decision`, `covenant`, `policyKey`, `userId`
+	- Export: `format=csv`
 - `GET /portals/commons/me` — Return verified portal identity (Bearer token)
 - `GET /portals/health/age-gated-services` — Silver+ route via portal policy
 - `GET /users/:userId/dashboard` — Return profile + trust score
