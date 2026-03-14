@@ -111,7 +111,7 @@ test('signup + verify + trust lookup works', async () => {
   assert.ok(Array.isArray(verify.body.trust.reasonCodes));
   assert.ok(verify.body.trust.reasonCodes.includes('verification_approved'));
 
-  const trust = await requestJson(`/trust/${userId}`, 'GET');
+  const trust = await requestJson(`/trust/${userId}`, 'GET', null, { 'x-api-key': 'test-key' });
   assert.equal(trust.status, 200);
   assert.equal(trust.body.success, true);
   assert.equal(typeof trust.body.trust.score, 'number');
@@ -247,7 +247,7 @@ test('onboarding upload-url stores biometric reference on profile', async () => 
   assert.ok(upload.body.upload.provider);
   assert.ok(upload.body.media.mediaId);
 
-  const dashboard = await requestJson(`/users/${userId}/dashboard`, 'GET');
+  const dashboard = await requestJson(`/users/${userId}/dashboard`, 'GET', null, { 'x-api-key': 'test-key' });
   assert.equal(dashboard.status, 200);
   assert.equal(dashboard.body.success, true);
   assert.equal(typeof dashboard.body.profile.biometricPhotoRef, 'string');
@@ -307,7 +307,7 @@ test('verification add and revoke endpoints recalculate trust and status', async
   assert.equal(documentCheck.body.verificationStatus, 'approved');
   assert.equal(documentCheck.body.trust.level, 'Silver');
 
-  const list = await requestJson(`/verifications/${userId}`, 'GET');
+  const list = await requestJson(`/verifications/${userId}`, 'GET', null, { 'x-api-key': 'test-key' });
   assert.equal(list.status, 200);
   assert.equal(list.body.success, true);
   assert.equal(list.body.summary.approvedEndorsements, 2);

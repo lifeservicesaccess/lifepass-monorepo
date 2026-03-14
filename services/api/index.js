@@ -1,6 +1,9 @@
 const express = require('express');
 const crypto = require('crypto');
 const { ethers } = require('ethers');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+const morgan = require('morgan');
 const onchainVerifier = require('./tools/onchainVerifier');
 const profileDb = require('./tools/profileDb');
 const zkProof = require('./tools/zkProof');
@@ -31,7 +34,32 @@ loadApiEnv();
  * secret manager rather than environment variables.
  */
 const app = express();
-app.use(express.json());
+
+// Security headers
+app.use(helmet());
+
+// Access logging
+app.use(morgan('combined'));
+
+// Body size limit (100 kb) — guards against payload amplification
+app.use(express.json({ limit: '100kb' }));
+
+// Rate limiters
+const publicRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: 'Too many requests, please try again later.' }
+});
+
+const authRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: 'Too many requests, please try again later.' }
+});
 
 const { body, validationResult } = require('express-validator');
 
@@ -564,7 +592,7 @@ app.get('/health', (_req, res) => {
  * verification utility. If verifier contract config is absent, this falls back to local
  * deterministic verification.
  */
-app.post('/proof/submit', async (req, res) => {
+app.post('/proof/submit', publicRateLimit, async (req, res) => {
   try {
     const { proof, publicSignals } = req.body;
     if (!proof || !publicSignals) {
@@ -726,6 +754,7 @@ function requirePolicyAdminKey(req, res, next) {
 app.use('/portals', createPortalRouter());
 
 app.post('/onboarding/signup',
+  publicRateLimit,
   body('userId').isString().notEmpty(),
   body('legalName').optional().isString(),
   body('name').optional().isString(),
@@ -885,7 +914,7 @@ app.post('/onboarding/upload-url',
   }
 );
 
-app.get('/onboarding/media/:userId', async (req, res) => {
+app.get('/onboarding/media/:userId', requireApiKey, async (req, res) => {
   try {
     const media = await profileMediaStore.listMediaByUser(req.params.userId);
     return res.json({ success: true, media });
@@ -1060,7 +1089,7 @@ app.post('/verifications/revoke',
   }
 );
 
-app.get('/verifications/:userId', async (req, res) => {
+app.get('/verifications/:userId', requireApiKey, async (req, res) => {
   try {
     const events = await verificationStore.listVerificationEvents(req.params.userId, {
       includeRevoked: req.query.includeRevoked === '1'
@@ -1149,7 +1178,7 @@ app.post('/onboarding/verify',
   }
 );
 
-app.get('/trust/:userId', async (req, res) => {
+app.get('/trust/:userId', requireApiKey, async (req, res) => {
   try {
     const trust = await trustScoreStore.getTrustScore(req.params.userId);
     return res.json({ success: true, trust });
@@ -1176,7 +1205,7 @@ app.post('/trust/:userId/update',
   }
 );
 
-app.get('/users/:userId/dashboard', async (req, res) => {
+app.get('/users/:userId/dashboard', requireApiKey, async (req, res) => {
   try {
     const profile = await profileDb.getProfile(req.params.userId);
     if (!profile) return res.status(404).json({ success: false, error: 'Profile not found' });
@@ -1229,6 +1258,7 @@ app.post('/auth/sso/token',
 );
 
 app.post('/auth/sso/verify',
+  authRateLimit,
   requireSsoConfigured,
   body('token').isString().notEmpty(),
   body('audience').optional().isString(),
@@ -1251,7 +1281,7 @@ app.post('/auth/sso/verify',
   }
 );
 
-app.get('/pass/qr-payload/:userId', async (req, res) => {
+app.get('/pass/qr-payload/:userId', requireApiKey, async (req, res) => {
   try {
     const trust = await trustScoreStore.getTrustScore(req.params.userId);
     const payload = await passQr.buildPassPayload(req.params.userId, trust);
@@ -1262,7 +1292,7 @@ app.get('/pass/qr-payload/:userId', async (req, res) => {
   }
 });
 
-app.get('/pass/qr/:userId', async (req, res) => {
+app.get('/pass/qr/:userId', requireApiKey, async (req, res) => {
   try {
     const trust = await trustScoreStore.getTrustScore(req.params.userId);
     const payload = await passQr.buildPassPayload(req.params.userId, trust);
@@ -1689,6 +1719,7 @@ app.post('/embeddings/upsert',
 );
 
 app.post('/embeddings/query',
+  publicRateLimit,
   body('text').isString().notEmpty(),
   async (req, res) => {
     const errors = validationResult(req);
@@ -1704,6 +1735,7 @@ app.post('/embeddings/query',
 );
 
 app.post('/ai/chat',
+  publicRateLimit,
   body('userId').isString().notEmpty(),
   body('message').isString().notEmpty(),
   async (req, res) => {

@@ -123,13 +123,13 @@ test('POST /auth/sso/verify validates issued token', async () => {
 test('GET /pass/qr and /pass/qr-payload return LifePass pass artifacts', async () => {
   const userId = `qr-user-${Date.now()}`;
 
-  const payloadRes = await requestJson(`/pass/qr-payload/${userId}`, 'GET');
+  const payloadRes = await requestJson(`/pass/qr-payload/${userId}`, 'GET', null, { 'x-api-key': API_KEY });
   assert.equal(payloadRes.status, 200);
   assert.equal(payloadRes.body.success, true);
   assert.equal(payloadRes.body.payload.lifePassId, userId);
   assert.ok(payloadRes.body.payload.trustLevel);
 
-  const qrRes = await requestJson(`/pass/qr/${userId}`, 'GET');
+  const qrRes = await requestJson(`/pass/qr/${userId}`, 'GET', null, { 'x-api-key': API_KEY });
   assert.equal(qrRes.status, 200);
   assert.equal(qrRes.body.success, true);
   assert.equal(qrRes.body.payload.lifePassId, userId);
