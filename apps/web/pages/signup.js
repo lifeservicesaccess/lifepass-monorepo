@@ -70,36 +70,85 @@ export default function SignupPage() {
   }
 
   return (
-    <main className="max-w-2xl mx-auto p-4 mt-8">
-      <h1 className="text-2xl font-semibold mb-3">LifePass Onboarding</h1>
-      <p className="text-sm text-slate-700 mb-4">Create your profile DNA, initialize Bronze trust, then submit verification sources.</p>
-      <div className="grid gap-3">
-        <input className="border rounded p-2" value={userId} onChange={(e) => setUserId(e.target.value)} placeholder="userId" />
-        <input className="border rounded p-2" value={legalName} onChange={(e) => setLegalName(e.target.value)} placeholder="legal name" />
-        <input className="border rounded p-2" value={covenantName} onChange={(e) => setCovenantName(e.target.value)} placeholder="covenant name (optional)" />
-        <input className="border rounded p-2" value={purposeStatement} onChange={(e) => setPurposeStatement(e.target.value)} placeholder="purpose statement" />
-        <input className="border rounded p-2" value={skills} onChange={(e) => setSkills(e.target.value)} placeholder="skills (comma-separated)" />
-        <input className="border rounded p-2" value={callings} onChange={(e) => setCallings(e.target.value)} placeholder="callings (comma-separated)" />
-        <input className="border rounded p-2" value={docs} onChange={(e) => setDocs(e.target.value)} placeholder="verification docs (comma-separated)" />
+    <main className="lp-page">
+      <div className="lp-shell">
+        <span className="lp-kicker">Onboarding</span>
+        <h1 className="lp-title">LifePass Identity Setup</h1>
+        <p className="lp-subtitle">Build your profile DNA, initialize trust, and submit verification sources.</p>
+
+        <section className="lp-panel">
+          <h2 className="lp-panel-title">Profile DNA</h2>
+          <div className="lp-grid lp-grid-2" style={{ marginTop: '0.75rem' }}>
+            <div>
+              <label className="lp-label" htmlFor="userId">User ID</label>
+              <input id="userId" className="lp-input" value={userId} onChange={(e) => setUserId(e.target.value)} placeholder="userId" />
+            </div>
+            <div>
+              <label className="lp-label" htmlFor="legalName">Legal name</label>
+              <input id="legalName" className="lp-input" value={legalName} onChange={(e) => setLegalName(e.target.value)} placeholder="legal name" />
+            </div>
+            <div>
+              <label className="lp-label" htmlFor="covenantName">Covenant name</label>
+              <input id="covenantName" className="lp-input" value={covenantName} onChange={(e) => setCovenantName(e.target.value)} placeholder="optional" />
+            </div>
+            <div>
+              <label className="lp-label" htmlFor="purposeStatement">Purpose statement</label>
+              <input id="purposeStatement" className="lp-input" value={purposeStatement} onChange={(e) => setPurposeStatement(e.target.value)} placeholder="what are you building" />
+            </div>
+            <div>
+              <label className="lp-label" htmlFor="skills">Skills</label>
+              <input id="skills" className="lp-input" value={skills} onChange={(e) => setSkills(e.target.value)} placeholder="comma-separated" />
+            </div>
+            <div>
+              <label className="lp-label" htmlFor="callings">Callings</label>
+              <input id="callings" className="lp-input" value={callings} onChange={(e) => setCallings(e.target.value)} placeholder="comma-separated" />
+            </div>
+          </div>
+
+          <div style={{ marginTop: '0.72rem' }}>
+            <label className="lp-label" htmlFor="docs">Verification docs</label>
+            <input id="docs" className="lp-input" value={docs} onChange={(e) => setDocs(e.target.value)} placeholder="comma-separated" />
+          </div>
+
+          <div className="lp-actions">
+            <button className="lp-button" onClick={submitSignup}>Submit Signup</button>
+          </div>
+        </section>
+
+        <section className="lp-panel">
+          <h2 className="lp-panel-title">Add Verification Source</h2>
+          <div className="lp-grid lp-grid-2" style={{ marginTop: '0.75rem' }}>
+            <div>
+              <label className="lp-label" htmlFor="verifierName">Verifier name</label>
+              <input id="verifierName" className="lp-input" value={verifierName} onChange={(e) => setVerifierName(e.target.value)} placeholder="verifier or institution" />
+            </div>
+            <div>
+              <label className="lp-label" htmlFor="verifierType">Verifier type</label>
+              <select id="verifierType" className="lp-select" value={verifierType} onChange={(e) => setVerifierType(e.target.value)}>
+                <option value="church">church</option>
+                <option value="school">school</option>
+                <option value="co-op">co-op</option>
+                <option value="employer">employer</option>
+                <option value="leader">leader</option>
+                <option value="other">other</option>
+              </select>
+            </div>
+          </div>
+
+          <div style={{ marginTop: '0.72rem' }}>
+            <label className="lp-label" htmlFor="endorsement">Endorsement note</label>
+            <input id="endorsement" className="lp-input" value={endorsement} onChange={(e) => setEndorsement(e.target.value)} placeholder="optional" />
+          </div>
+
+          <div className="lp-actions">
+            <button className="lp-button-secondary" onClick={submitVerifier}>Submit Verifier Source</button>
+          </div>
+        </section>
+
+        {status ? <p className="lp-status">{status}</p> : null}
+        {trustLevel ? <p className="lp-subtitle lp-note-success" style={{ marginTop: '0.55rem' }}>Current trust tier: {trustLevel}</p> : null}
+        <GuideChat userId={userId} />
       </div>
-      <button className="mt-4 bg-blue-600 text-white px-4 py-2 rounded" onClick={submitSignup}>Submit Signup</button>
-      <div className="mt-6 border rounded p-3 grid gap-3">
-        <h2 className="text-lg font-medium">Add Verification Source</h2>
-        <input className="border rounded p-2" value={verifierName} onChange={(e) => setVerifierName(e.target.value)} placeholder="verifier name" />
-        <select className="border rounded p-2" value={verifierType} onChange={(e) => setVerifierType(e.target.value)}>
-          <option value="church">church</option>
-          <option value="school">school</option>
-          <option value="co-op">co-op</option>
-          <option value="employer">employer</option>
-          <option value="leader">leader</option>
-          <option value="other">other</option>
-        </select>
-        <input className="border rounded p-2" value={endorsement} onChange={(e) => setEndorsement(e.target.value)} placeholder="endorsement note (optional)" />
-        <button className="bg-slate-800 text-white px-4 py-2 rounded" onClick={submitVerifier}>Submit Verifier Source</button>
-      </div>
-      {status ? <p className="mt-3 text-sm">{status}</p> : null}
-      {trustLevel ? <p className="mt-1 text-sm text-emerald-700">Current trust tier: {trustLevel}</p> : null}
-      <GuideChat userId={userId} />
     </main>
   );
 }

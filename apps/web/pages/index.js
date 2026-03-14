@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import axios from 'axios';
 import Link from 'next/link';
 
-// Import RainbowKit and wagmi hooks for wallet connection
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useAccount } from 'wagmi';
 
@@ -14,7 +13,6 @@ function normalizeBaseUrl(baseUrl) {
 function apiPath(pathname) {
   const configured = normalizeBaseUrl(process.env.NEXT_PUBLIC_API_BASE_URL);
   if (!configured) {
-    // In local dev, relative paths rely on Next.js rewrites in next.config.js.
     return pathname;
   }
   return `${configured}${pathname}`;
@@ -32,29 +30,18 @@ function apiTargetLabel() {
   return 'relative paths (same origin)';
 }
 
-/**
- * Home page for the LifePass web portal.  This simple interface allows a user to
- * input their birth year and wallet address, submit a zero‑knowledge proof of
- * being over 18, and mint a LifePass Soulbound Token via the backend API.  In a
- * real application the proof would be generated off‑chain using snarkjs and
- * integrated with a wallet provider such as WalletConnect or MetaMask.
- */
 export default function Home() {
   const [birthYear, setBirthYear] = useState('');
   const [status, setStatus] = useState('');
   const apiTarget = apiTargetLabel();
 
-  // Retrieve the connected wallet address from wagmi.  When the user
-  // connects their wallet via the ConnectButton, this hook will update.
   const { address: wallet } = useAccount();
 
   async function handleMint() {
     try {
-      setStatus('Generating proof…');
+      setStatus('Generating proof...');
       const currentYear = new Date().getFullYear();
       const is_over_18 = currentYear - parseInt(birthYear || '0', 10) >= 18 ? 1 : 0;
-      // Submit the proof. In local/demo mode we send a bytes-like placeholder that
-      // matches the API contract while publicSignals carries the age predicate.
       const proofRes = await axios.post(apiPath('/proof/submit'), {
         proof: '0x1234',
         publicSignals: { is_over_18 }
@@ -63,7 +50,7 @@ export default function Home() {
         setStatus('Proof failed: ' + (proofRes.data.error || 'unknown error'));
         return;
       }
-      setStatus('Proof verified. Minting token…');
+      setStatus('Proof verified. Minting token...');
       const tokenId = Math.floor(Math.random() * 1e9);
       const meta = {
         purpose: 'LifePass',
@@ -72,9 +59,6 @@ export default function Home() {
         didUri: ''
       };
       const mintRes = await axios.post(apiPath('/sbt/mint'), {
-        // Use the connected wallet address for minting.  The backend will
-        // submit the transaction on behalf of the user.  Ensure the user
-        // has connected a wallet before attempting to mint.
         to: wallet,
         tokenId,
         metadata: meta
@@ -82,15 +66,13 @@ export default function Home() {
       if (!mintRes.data.success) {
         const reasonSuffix = mintRes.data.reason ? ` (reason: ${mintRes.data.reason})` : '';
         setStatus('Mint failed: ' + (mintRes.data.error || 'unknown error') + reasonSuffix);
+      } else if (mintRes.data.simulated) {
+        const reasonSuffix = mintRes.data.chainError
+          ? ` (on-chain reason: ${mintRes.data.chainError})`
+          : '';
+        setStatus('Mint simulated (dev mode). Transaction reference: ' + mintRes.data.txHash + reasonSuffix);
       } else {
-        if (mintRes.data.simulated) {
-          const reasonSuffix = mintRes.data.chainError
-            ? ` (on-chain reason: ${mintRes.data.chainError})`
-            : '';
-          setStatus('Mint simulated (dev mode). Transaction reference: ' + mintRes.data.txHash + reasonSuffix);
-        } else {
-          setStatus('Mint successful on-chain. Transaction hash: ' + mintRes.data.txHash);
-        }
+        setStatus('Mint successful on-chain. Transaction hash: ' + mintRes.data.txHash);
       }
     } catch (err) {
       console.error(err);
@@ -104,43 +86,59 @@ export default function Home() {
   }
 
   return (
-    <main className="max-w-xl mx-auto mt-8 p-4">
-      <div className="mb-3 rounded border border-slate-300 bg-slate-50 px-3 py-2 text-xs text-slate-700">
-        <span className="font-semibold">API target:</span>{' '}
-        <span className="font-mono break-all">{apiTarget}</span>
+    <main className="lp-page">
+      <div className="lp-shell">
+        <span className="lp-kicker">Identity Rail</span>
+        <h1 className="lp-title">LifePass Mint Portal</h1>
+        <p className="lp-subtitle">Generate age proof and mint your Soulbound pass against the active API target.</p>
+
+        <div className="lp-nav">
+          <Link href="/signup">Onboarding</Link>
+          <Link href="/dashboard">Dashboard</Link>
+        </div>
+
+        <div className="lp-badge">
+          <span className="font-semibold">API target:</span>{' '}
+          <span className="lp-mono">{apiTarget}</span>
+        </div>
+
+        <section className="lp-panel">
+          <h2 className="lp-panel-title">Mint Input</h2>
+          <p className="lp-subtitle">Connect wallet, enter birth year, then submit proof and mint in one step.</p>
+
+          <div className="lp-grid lp-grid-2" style={{ marginTop: '0.8rem' }}>
+            <div>
+              <label className="lp-label" htmlFor="birthYear">Birth year</label>
+              <input
+                id="birthYear"
+                className="lp-input"
+                type="number"
+                value={birthYear}
+                onChange={(e) => setBirthYear(e.target.value)}
+                placeholder="e.g. 2000"
+              />
+            </div>
+            <div>
+              <label className="lp-label">Wallet connection</label>
+              <div className="lp-panel" style={{ marginTop: 0, padding: '0.52rem', borderStyle: 'dashed' }}>
+                <ConnectButton showBalance={false} />
+              </div>
+            </div>
+          </div>
+
+          <div className="lp-actions">
+            <button
+              onClick={handleMint}
+              disabled={!birthYear || !wallet}
+              className="lp-button"
+            >
+              Submit Proof & Mint
+            </button>
+          </div>
+
+          {status && <p className="lp-status">{status}</p>}
+        </section>
       </div>
-      <h1 className="text-2xl font-semibold mb-2">LifePass SBT Minting</h1>
-      <p className="text-sm mb-2">
-        <Link className="underline" href="/signup">Onboarding</Link>
-        {' | '}
-        <Link className="underline" href="/dashboard">Dashboard</Link>
-      </p>
-      <p className="text-sm text-slate-700 mb-4">Enter your birth year and connect your wallet to mint a LifePass soulbound token.</p>
-      <div className="mb-4">
-        <label className="flex items-center gap-2">
-          <span className="text-sm">Birth year:</span>
-          <input
-            className="border rounded px-2 py-1 w-32"
-            type="number"
-            value={birthYear}
-            onChange={(e) => setBirthYear(e.target.value)}
-            placeholder="e.g. 2000"
-          />
-        </label>
-      </div>
-      <div className="mb-4">
-        <ConnectButton showBalance={false} />
-      </div>
-      <button
-        onClick={handleMint}
-        disabled={!birthYear || !wallet}
-        className="bg-blue-600 text-white px-4 py-2 rounded disabled:opacity-50"
-      >
-        Submit Proof & Mint
-      </button>
-      {status && (
-        <p className="mt-4 text-sm text-slate-800">{status}</p>
-      )}
     </main>
   );
 }

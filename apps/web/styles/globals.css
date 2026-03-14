@@ -2,5 +2,253 @@
 @tailwind components;
 @tailwind utilities;
 
-/* You can add global styles below */
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap');
+
+:root {
+	--lp-bg: #f8f4ea;
+	--lp-bg-soft: #efe7d8;
+	--lp-ink: #1f2a2a;
+	--lp-muted: #5e6a67;
+	--lp-card: #fffdfa;
+	--lp-line: #d8ccba;
+	--lp-accent: #176b5f;
+	--lp-accent-strong: #0f544a;
+	--lp-highlight: #c58f2a;
+	--lp-danger: #b0442b;
+	--lp-success: #1f7a45;
+}
+
+html,
+body,
+#__next {
+	min-height: 100%;
+}
+
+body {
+	font-family: 'Manrope', sans-serif;
+	color: var(--lp-ink);
+	background:
+		radial-gradient(circle at 15% 15%, rgba(197, 143, 42, 0.17), transparent 30%),
+		radial-gradient(circle at 85% 0%, rgba(23, 107, 95, 0.14), transparent 28%),
+		linear-gradient(165deg, var(--lp-bg) 0%, var(--lp-bg-soft) 100%);
+}
+
+h1,
+h2,
+h3 {
+	font-family: 'Fraunces', serif;
+	letter-spacing: 0.01em;
+}
+
+.lp-page {
+	min-height: 100vh;
+	padding: 2rem 1rem 2.75rem;
+}
+
+.lp-shell {
+	max-width: 56rem;
+	margin: 0 auto;
+	background: color-mix(in srgb, var(--lp-card) 92%, white 8%);
+	border: 1px solid var(--lp-line);
+	border-radius: 1.25rem;
+	box-shadow: 0 22px 60px rgba(31, 42, 42, 0.08);
+	padding: 1.1rem 1.1rem 1.25rem;
+}
+
+.lp-kicker {
+	display: inline-block;
+	font-size: 0.74rem;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0.08em;
+	color: var(--lp-accent-strong);
+	background: rgba(23, 107, 95, 0.12);
+	border: 1px solid rgba(23, 107, 95, 0.22);
+	border-radius: 999px;
+	padding: 0.26rem 0.62rem;
+}
+
+.lp-title {
+	margin-top: 0.8rem;
+	font-size: clamp(1.55rem, 3.6vw, 2.18rem);
+	line-height: 1.12;
+}
+
+.lp-subtitle {
+	margin-top: 0.4rem;
+	color: var(--lp-muted);
+	font-size: 0.95rem;
+}
+
+.lp-nav {
+	margin-top: 0.85rem;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.7rem;
+	font-size: 0.86rem;
+}
+
+.lp-nav a {
+	color: var(--lp-accent-strong);
+	text-decoration: none;
+	border-bottom: 1px dashed rgba(15, 84, 74, 0.45);
+}
+
+.lp-nav a:hover {
+	border-bottom-style: solid;
+}
+
+.lp-badge {
+	margin-top: 0.8rem;
+	border-radius: 0.8rem;
+	border: 1px solid var(--lp-line);
+	background: #f6f1e8;
+	padding: 0.55rem 0.72rem;
+	font-size: 0.76rem;
+	color: #4b5855;
+}
+
+.lp-mono {
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	font-size: 0.73rem;
+	word-break: break-word;
+	color: #33413f;
+}
+
+.lp-panel {
+	margin-top: 1rem;
+	border: 1px solid var(--lp-line);
+	border-radius: 1rem;
+	background: var(--lp-card);
+	padding: 0.95rem;
+}
+
+.lp-panel-title {
+	font-size: 1.02rem;
+	margin-bottom: 0.32rem;
+}
+
+.lp-grid {
+	display: grid;
+	gap: 0.72rem;
+}
+
+.lp-grid-2 {
+	grid-template-columns: 1fr;
+}
+
+.lp-label {
+	display: block;
+	font-size: 0.82rem;
+	font-weight: 700;
+	color: #42504d;
+	margin-bottom: 0.28rem;
+}
+
+.lp-input,
+.lp-select,
+.lp-textarea {
+	width: 100%;
+	border: 1px solid #ccbda8;
+	border-radius: 0.72rem;
+	background: #fff;
+	color: var(--lp-ink);
+	padding: 0.58rem 0.72rem;
+	font-size: 0.95rem;
+}
+
+.lp-input:focus,
+.lp-select:focus,
+.lp-textarea:focus {
+	outline: 2px solid rgba(23, 107, 95, 0.22);
+	outline-offset: 1px;
+	border-color: var(--lp-accent);
+}
+
+.lp-textarea {
+	min-height: 6rem;
+	resize: vertical;
+}
+
+.lp-actions {
+	margin-top: 0.84rem;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.58rem;
+}
+
+.lp-button,
+.lp-button-secondary {
+	border-radius: 0.72rem;
+	font-weight: 700;
+	font-size: 0.92rem;
+	padding: 0.58rem 0.96rem;
+	transition: transform 120ms ease, box-shadow 120ms ease, background-color 120ms ease;
+}
+
+.lp-button {
+	color: #fff;
+	background: linear-gradient(140deg, var(--lp-accent), #1f8577);
+	border: 1px solid #16665b;
+	box-shadow: 0 10px 18px rgba(23, 107, 95, 0.2);
+}
+
+.lp-button:hover {
+	transform: translateY(-1px);
+	box-shadow: 0 14px 24px rgba(23, 107, 95, 0.25);
+}
+
+.lp-button-secondary {
+	color: #273534;
+	background: #efe7d8;
+	border: 1px solid #ccbea9;
+}
+
+.lp-button:disabled,
+.lp-button-secondary:disabled {
+	opacity: 0.54;
+	cursor: not-allowed;
+	transform: none;
+	box-shadow: none;
+}
+
+.lp-status {
+	margin-top: 0.9rem;
+	border-left: 4px solid var(--lp-highlight);
+	background: #fbf5e8;
+	border-radius: 0.58rem;
+	padding: 0.62rem 0.72rem;
+	font-size: 0.9rem;
+	color: #404e4b;
+}
+
+.lp-note-success {
+	color: var(--lp-success);
+}
+
+.lp-kv {
+	margin-top: 0.7rem;
+	display: grid;
+	gap: 0.36rem;
+	font-size: 0.9rem;
+}
+
+.lp-kv span {
+	color: var(--lp-muted);
+	margin-right: 0.33rem;
+}
+
+@media (min-width: 768px) {
+	.lp-page {
+		padding-top: 2.4rem;
+	}
+
+	.lp-shell {
+		padding: 1.35rem 1.45rem 1.55rem;
+	}
+
+	.lp-grid-2 {
+		grid-template-columns: 1fr 1fr;
+	}
+}
 

@@ -35,23 +35,30 @@ export default function GuideChat({ userId }) {
   }
 
   return (
-    <section className="border rounded p-3 mt-4 bg-slate-50">
-      <h3 className="font-semibold mb-2">AI Onboarding Guide</h3>
-      <textarea
-        className="w-full border rounded p-2 text-sm"
-        rows={3}
-        value={message}
-        onChange={(e) => setMessage(e.target.value)}
-        placeholder="Ask for onboarding help or portal recommendations"
-      />
-      <button
-        className="mt-2 bg-slate-900 text-white px-3 py-1 rounded disabled:opacity-50"
-        disabled={!message || !userId || loading}
-        onClick={askGuide}
-      >
-        {loading ? 'Asking...' : 'Ask Guide'}
-      </button>
-      {reply ? <p className="text-sm mt-3">{reply}</p> : null}
+    <section className="lp-panel">
+      <h3 className="lp-panel-title">AI Onboarding Guide</h3>
+      <p className="lp-subtitle">Ask for next steps, trust-building ideas, or portal recommendations.</p>
+      <div style={{ marginTop: '0.72rem' }}>
+        <label className="lp-label" htmlFor="guideMessage">Message</label>
+        <textarea
+          id="guideMessage"
+          className="lp-textarea"
+          rows={3}
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+          placeholder="Ask for onboarding help or portal recommendations"
+        />
+      </div>
+      <div className="lp-actions">
+        <button
+          className="lp-button-secondary"
+          disabled={!message || !userId || loading}
+          onClick={askGuide}
+        >
+          {loading ? 'Asking...' : 'Ask Guide'}
+        </button>
+      </div>
+      {reply ? <p className="lp-status">{reply}</p> : null}
     </section>
   );
 }

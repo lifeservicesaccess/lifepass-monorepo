@@ -23,7 +23,7 @@ export default function DashboardPage() {
       const res = await axios.get(apiPath(`/users/${encodeURIComponent(userId)}/dashboard`));
       if (res.data?.success) {
         setData(res.data);
-        setStatus('Loaded');
+        setStatus('Loaded profile and trust snapshot.');
       } else {
         setStatus(res.data?.error || 'Failed to load dashboard');
       }
@@ -34,25 +34,46 @@ export default function DashboardPage() {
   }
 
   return (
-    <main className="max-w-2xl mx-auto p-4 mt-8">
-      <h1 className="text-2xl font-semibold mb-3">LifePass Dashboard</h1>
-      <div className="flex gap-2">
-        <input className="border rounded p-2 flex-1" value={userId} onChange={(e) => setUserId(e.target.value)} placeholder="Enter userId" />
-        <button className="bg-slate-900 text-white px-4 rounded" onClick={loadDashboard} disabled={!userId}>Load</button>
-      </div>
-      {status ? <p className="mt-3 text-sm">{status}</p> : null}
-      {data ? (
-        <section className="mt-4 border rounded p-3 bg-white">
-          <h2 className="font-semibold">Profile</h2>
-          <p className="text-sm">Name: {data.profile?.name || 'N/A'}</p>
-          <p className="text-sm">Purpose: {data.profile?.purpose || 'N/A'}</p>
-          <p className="text-sm">Verification: {data.profile?.verificationStatus || 'N/A'}</p>
-          <h3 className="font-semibold mt-3">Trust Score</h3>
-          <p className="text-sm">Score: {data.trust?.score}</p>
-          <p className="text-sm">Level: {data.trust?.level}</p>
-          <p className="text-sm">Reason: {data.trust?.reason}</p>
+    <main className="lp-page">
+      <div className="lp-shell">
+        <span className="lp-kicker">Trust Lens</span>
+        <h1 className="lp-title">LifePass Dashboard</h1>
+        <p className="lp-subtitle">Fetch a user snapshot to inspect profile, trust level, and mint readiness context.</p>
+
+        <section className="lp-panel">
+          <h2 className="lp-panel-title">Lookup</h2>
+          <div className="lp-grid lp-grid-2" style={{ marginTop: '0.76rem' }}>
+            <div>
+              <label className="lp-label" htmlFor="dashboardUserId">User ID</label>
+              <input
+                id="dashboardUserId"
+                className="lp-input"
+                value={userId}
+                onChange={(e) => setUserId(e.target.value)}
+                placeholder="Enter userId"
+              />
+            </div>
+            <div className="lp-actions" style={{ alignItems: 'end', marginTop: 0 }}>
+              <button className="lp-button" onClick={loadDashboard} disabled={!userId}>Load Snapshot</button>
+            </div>
+          </div>
+          {status ? <p className="lp-status">{status}</p> : null}
         </section>
-      ) : null}
+
+        {data ? (
+          <section className="lp-panel">
+            <h2 className="lp-panel-title">Snapshot</h2>
+            <div className="lp-kv">
+              <p><span>Name:</span>{data.profile?.name || 'N/A'}</p>
+              <p><span>Purpose:</span>{data.profile?.purpose || 'N/A'}</p>
+              <p><span>Verification:</span>{data.profile?.verificationStatus || 'N/A'}</p>
+              <p><span>Trust score:</span>{data.trust?.score}</p>
+              <p><span>Trust level:</span>{data.trust?.level}</p>
+              <p><span>Reason:</span>{data.trust?.reason}</p>
+            </div>
+          </section>
+        ) : null}
+      </div>
     </main>
   );
 }
