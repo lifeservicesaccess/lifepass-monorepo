@@ -34,5 +34,25 @@ services:
         sync: false
       - key: SBT_CONTRACT_ADDRESS
         sync: false
+      - key: TRUST_REGISTRY_ADDRESS
+        sync: false
       - key: AGE_VERIFIER_ADDRESS
+        sync: false
+      - key: LIFEPASS_SSO_JWT_SECRET
+        sync: false
+      - key: LIFEPASS_SSO_JWT_ISSUER
+        value: lifepass-api
+      - key: LIFEPASS_SSO_DEFAULT_AUDIENCE
+        value: zionstack-portals
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_STORAGE_BUCKET
+        value: lifepass-assets
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_REGION
         sync: false
