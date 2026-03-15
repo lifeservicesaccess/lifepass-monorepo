@@ -21,8 +21,7 @@ function toArray(csv) {
 
 export default function App() {
   const [userId, setUserId] = useState(`mobile_${Date.now()}`);
-  const [accessMode, setAccessMode] = useState('api-key');
-  const [credential, setCredential] = useState('');
+  const [sessionToken, setSessionToken] = useState('');
   const [legalName, setLegalName] = useState('');
   const [covenantName, setCovenantName] = useState('');
   const [purposeStatement, setPurposeStatement] = useState('');
@@ -32,6 +31,7 @@ export default function App() {
   const [guideMessage, setGuideMessage] = useState('What should I do next?');
   const [guideReply, setGuideReply] = useState('');
   const [milestoneTitle, setMilestoneTitle] = useState('Finish first verified step');
+  const [holderAddress, setHolderAddress] = useState('');
   const [journey, setJourney] = useState(null);
   const [status, setStatus] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -39,11 +39,8 @@ export default function App() {
   const endpoint = useMemo(() => `${API_BASE_URL}/onboarding/signup`, []);
 
   function authHeaders() {
-    if (!credential) return {};
-    if (accessMode === 'token') {
-      return { Authorization: `Bearer ${credential}` };
-    }
-    return { 'x-api-key': credential };
+    if (!sessionToken) return {};
+    return { Authorization: `Bearer ${sessionToken}` };
   }
 
   async function readJson(path, options = {}) {
@@ -83,6 +80,7 @@ export default function App() {
         setStatus(`Signup failed: ${data.error || response.status}`);
       } else {
         setJourney(data);
+        setSessionToken(data.session?.token || '');
         setStatus(`Signup submitted. Trust tier: ${data.trust?.level || 'Bronze'}`);
       }
     } catch (err) {
@@ -113,6 +111,9 @@ export default function App() {
   async function loadJourney() {
     try {
       setStatus('Loading dashboard...');
+      if (!sessionToken) {
+        throw new Error('Sign up first to obtain a LifePass session token');
+      }
       const data = await readJson(`/users/${encodeURIComponent(userId)}/dashboard`, {
         method: 'GET',
         headers: authHeaders()
@@ -127,6 +128,9 @@ export default function App() {
   async function createMilestone() {
     try {
       setStatus('Saving milestone...');
+      if (!sessionToken) {
+        throw new Error('Sign up first to obtain a LifePass session token');
+      }
       await readJson(`/users/${encodeURIComponent(userId)}/milestones`, {
         method: 'POST',
         headers: {
@@ -142,6 +146,35 @@ export default function App() {
     }
   }
 
+  async function anchorLatestMilestone() {
+    try {
+      setStatus('Anchoring latest completed milestone...');
+      if (!sessionToken) {
+        throw new Error('Sign up first to obtain a LifePass session token');
+      }
+      const latestMilestone = journey?.milestones?.find((milestone) => milestone.status === 'completed' || milestone.status === 'pending' || milestone.status === 'in_progress');
+      if (!latestMilestone) {
+        throw new Error('Create a milestone first');
+      }
+      if (!holderAddress) {
+        throw new Error('Enter the holder wallet address used for the LifePass');
+      }
+      const data = await readJson(`/users/${encodeURIComponent(userId)}/milestones/${encodeURIComponent(latestMilestone.id)}/anchor`, {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          ...authHeaders()
+        },
+        body: JSON.stringify({ holderAddress })
+      });
+      setStatus(`Milestone anchored: ${data.anchor.txHash}`);
+      await loadJourney();
+    } catch (err) {
+      setStatus(`Anchor error: ${err.message}`);
+    }
+  }
+
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.container}>
@@ -149,8 +182,6 @@ export default function App() {
         <Text style={styles.subtitle}>M1 profile capture with Bronze trust initialization</Text>
 
         <View style={styles.form}>
-          <TextInput style={styles.input} value={credential} onChangeText={setCredential} placeholder={accessMode === 'token' ? 'Bearer token' : 'API key'} />
-          <TextInput style={styles.input} value={accessMode} onChangeText={setAccessMode} placeholder="api-key or token" />
           <TextInput style={styles.input} value={userId} onChangeText={setUserId} placeholder="User ID" />
           <TextInput style={styles.input} value={legalName} onChangeText={setLegalName} placeholder="Legal name" />
           <TextInput style={styles.input} value={covenantName} onChangeText={setCovenantName} placeholder="Covenant name (optional)" />
@@ -170,6 +201,7 @@ export default function App() {
           {submitting ? <ActivityIndicator size="small" color="#0f766e" style={styles.loader} /> : null}
           {status ? <Text style={styles.status}>{status}</Text> : null}
           <Text style={styles.hint}>Android emulator uses 10.0.2.2 to reach local API on port 3003.</Text>
+          {sessionToken ? <Text style={styles.hint}>LifePass session active for self-service actions.</Text> : null}
 
           <TextInput style={styles.input} value={guideMessage} onChangeText={setGuideMessage} placeholder="Ask the guide" />
           <TouchableOpacity style={styles.secondaryButton} onPress={askGuide}>
@@ -178,12 +210,16 @@ export default function App() {
           {guideReply ? <Text style={styles.status}>{guideReply}</Text> : null}
 
           <TextInput style={styles.input} value={milestoneTitle} onChangeText={setMilestoneTitle} placeholder="New milestone title" />
+          <TextInput style={styles.input} value={holderAddress} onChangeText={setHolderAddress} placeholder="Holder wallet address for on-chain anchor" />
           <View style={styles.inlineRow}>
             <TouchableOpacity style={styles.secondaryButton} onPress={createMilestone}>
               <Text style={styles.secondaryButtonText}>Add Milestone</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.secondaryButton} onPress={loadJourney}>
               <Text style={styles.secondaryButtonText}>Load Journey</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.secondaryButton} onPress={anchorLatestMilestone}>
+              <Text style={styles.secondaryButtonText}>Anchor Milestone</Text>
             </TouchableOpacity>
           </View>
 
@@ -192,9 +228,10 @@ export default function App() {
               <Text style={styles.cardTitle}>Journey Snapshot</Text>
               <Text style={styles.cardLine}>Trust: {journey.trust?.level || 'Bronze'}</Text>
               <Text style={styles.cardLine}>Completed milestones: {journey.milestoneSummary?.completed || 0}</Text>
+              <Text style={styles.cardLine}>Session token: {sessionToken ? 'active' : 'missing'}</Text>
               <Text style={styles.cardLine}>Badges: {(journey.badges || []).map((badge) => badge.name).join(', ') || 'none yet'}</Text>
               {(journey.milestones || []).map((milestone) => (
-                <Text key={milestone.id} style={styles.cardLine}>{milestone.title} · {milestone.status}</Text>
+                <Text key={milestone.id} style={styles.cardLine}>{milestone.title} · {milestone.status}{milestone.metadata?.onchainAnchor?.txHash ? ` · anchored ${milestone.metadata.onchainAnchor.txHash}` : ''}</Text>
               ))}
             </View>
           ) : null}

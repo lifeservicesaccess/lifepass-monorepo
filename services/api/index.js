@@ -68,6 +68,7 @@ const { body, validationResult } = require('express-validator');
 const RPC_URL = process.env.RPC_URL || "https://rpc-mumbai.maticvigil.com"; // default to Polygon Mumbai
 const PRIVATE_KEY = process.env.PRIVATE_KEY;
 const SBT_CONTRACT_ADDRESS = process.env.SBT_CONTRACT_ADDRESS;
+const TRUST_REGISTRY_ADDRESS = process.env.TRUST_REGISTRY_ADDRESS;
 const AGE_VERIFIER_ADDRESS = process.env.AGE_VERIFIER_ADDRESS;
 const CORS_ALLOWED_ORIGINS = (process.env.CORS_ALLOWED_ORIGINS || '')
   .split(',')
@@ -110,10 +111,12 @@ function startupChecklist() {
   const hasRpc = Boolean(RPC_URL);
   const hasPk = Boolean(PRIVATE_KEY);
   const hasSbtAddress = Boolean(SBT_CONTRACT_ADDRESS);
+  const hasTrustRegistryAddress = Boolean(TRUST_REGISTRY_ADDRESS);
   const requireAgeVerifier = process.env.REQUIRE_AGE_VERIFIER === '1' || isProd;
   const useSnarkJs = process.env.USE_SNARKJS === '1';
   const policyPreconditions = getPolicyExecutionPreconditions();
   const blockchainReady = hasRpc && hasPk && hasSbtAddress;
+  const anchorReady = hasRpc && hasPk && hasTrustRegistryAddress;
   const hasCorsAllowlist = CORS_ALLOW_ALL || CORS_ALLOWED_ORIGINS.length > 0;
 
   const items = [
@@ -153,6 +156,16 @@ function startupChecklist() {
       check: 'On-chain mint mode',
       status: blockchainReady ? 'pass' : 'warn',
       detail: blockchainReady ? 'RPC_URL + PRIVATE_KEY + SBT_CONTRACT_ADDRESS set' : 'incomplete config; /sbt/mint will simulate'
+    },
+    {
+      check: 'TRUST_REGISTRY_ADDRESS format',
+      status: hasTrustRegistryAddress ? (ethers.isAddress(TRUST_REGISTRY_ADDRESS) ? 'pass' : 'fail') : 'warn',
+      detail: hasTrustRegistryAddress ? (ethers.isAddress(TRUST_REGISTRY_ADDRESS) ? 'valid address format' : 'invalid address format') : 'not set'
+    },
+    {
+      check: 'On-chain action anchoring mode',
+      status: anchorReady ? 'pass' : 'warn',
+      detail: anchorReady ? 'RPC_URL + PRIVATE_KEY + TRUST_REGISTRY_ADDRESS set' : 'incomplete config; milestone anchors will simulate'
     },
     {
       check: 'AGE_VERIFIER_ADDRESS format',
@@ -775,6 +788,31 @@ function normalizeVisibilityPreferences(value) {
   };
 }
 
+function maybeIssueSsoSession(userId, trust, extra = {}) {
+  if (!ssoAuth.getSsoConfig().configured) {
+    return null;
+  }
+
+  const issued = ssoAuth.issueSsoToken({
+    userId,
+    trustLevel: trust.level,
+    trustScore: trust.score,
+    metadata: extra
+  });
+
+  return {
+    token: issued.token,
+    tokenType: 'Bearer',
+    audience: issued.audience,
+    expiresIn: issued.expiresIn,
+    claims: {
+      lifePassId: userId,
+      trustLevel: trust.level,
+      trustScore: trust.score
+    }
+  };
+}
+
 function requireSsoConfigured(req, res, next) {
   const config = ssoAuth.getSsoConfig();
   if (!config.configured) {
@@ -899,7 +937,8 @@ app.post('/onboarding/signup',
         `${resolvedPurpose} ${resolvedSkills.join(' ')} ${resolvedCallings.join(' ')}`,
         { userId, type: 'profile' }
       );
-      return res.status(201).json({ success: true, profile, trust });
+      const session = maybeIssueSsoSession(userId, trust, { source: 'signup' });
+      return res.status(201).json({ success: true, profile, trust, session });
     } catch (err) {
       console.error('onboarding/signup error', err);
       return res.status(500).json({ success: false, error: 'Signup error' });
@@ -1333,6 +1372,70 @@ app.patch('/users/:userId/milestones/:milestoneId',
     } catch (err) {
       console.error('milestone update error', err);
       return res.status(500).json({ success: false, error: err.message || 'Milestone update failed' });
+    }
+  }
+);
+
+app.post('/users/:userId/milestones/:milestoneId/anchor',
+  requireApiKeyOrSelfAccess('userId'),
+  body('holderAddress').optional().isString(),
+  body('actionType').optional().isString(),
+  body('metadataUri').optional().isString(),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
+    try {
+      const profile = await profileDb.getProfile(req.params.userId);
+      if (!profile) return res.status(404).json({ success: false, error: 'Profile not found' });
+
+      const milestones = await milestoneStore.listMilestones(req.params.userId);
+      const milestone = milestones.find((item) => item.id === req.params.milestoneId);
+      if (!milestone) return res.status(404).json({ success: false, error: 'Milestone not found' });
+
+      const holderAddress = String(req.body.holderAddress || profile.walletAddress || '').trim();
+      if (!holderAddress || !ethers.isAddress(holderAddress)) {
+        return res.status(400).json({ success: false, error: 'A valid holderAddress or minted profile walletAddress is required' });
+      }
+
+      const actionType = String(req.body.actionType || 'milestone_completed').trim() || 'milestone_completed';
+      const metadataUri = String(req.body.metadataUri || '').trim();
+      const actionPayload = {
+        userId: req.params.userId,
+        milestoneId: milestone.id,
+        title: milestone.title,
+        status: milestone.status,
+        completedAt: milestone.completedAt || null,
+        metadata: milestone.metadata || {},
+        actionType,
+        metadataUri
+      };
+      const actionHash = ethers.keccak256(ethers.toUtf8Bytes(stableStringify(actionPayload)));
+      const anchor = await walletTool.anchorTrustAction(req.params.userId, {
+        holderAddress,
+        actionHash,
+        actionType,
+        metadataUri
+      });
+
+      const updatedMilestone = await milestoneStore.updateMilestone(req.params.userId, milestone.id, {
+        metadata: {
+          ...(milestone.metadata || {}),
+          onchainAnchor: {
+            actionHash,
+            actionType,
+            holderAddress,
+            metadataUri,
+            txHash: anchor.txHash,
+            simulated: Boolean(anchor.simulated),
+            anchoredAt: new Date().toISOString()
+          }
+        }
+      });
+
+      return res.status(201).json({ success: true, milestone: updatedMilestone, anchor });
+    } catch (err) {
+      console.error('milestone anchor error', err);
+      return res.status(500).json({ success: false, error: 'Milestone anchor failed', reason: parseEvmError(err) });
     }
   }
 );

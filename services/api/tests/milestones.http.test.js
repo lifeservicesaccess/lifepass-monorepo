@@ -148,6 +148,7 @@ test('milestone create/update/list and dashboard summary work', async () => {
   assert.equal(dashboard.body.success, true);
   assert.equal(Array.isArray(dashboard.body.badges), true);
   assert.equal(dashboard.body.milestoneSummary.completed >= 1, true);
+  assert.equal(typeof signup.body.session?.token, 'string');
 });
 
 test('milestones and visibility support self-service via bearer token', async () => {
@@ -188,6 +189,46 @@ test('milestones and visibility support self-service via bearer token', async ()
   assert.equal(dashboard.body.success, true);
   assert.equal(Array.isArray(dashboard.body.milestones), true);
   assert.equal(dashboard.body.profile.visibility.legalName, true);
+});
+
+test('completed milestone can be anchored on-chain or simulated via trust registry helper', async () => {
+  const userId = `user-anchor-${Date.now()}`;
+  const holderAddress = '0x0000000000000000000000000000000000000001';
+  const signup = await requestJson('/onboarding/signup', 'POST', {
+    userId,
+    name: 'Anchor User',
+    purpose: 'Anchor service milestones'
+  });
+  assert.equal(signup.status, 201);
+
+  const token = await issueToken(userId);
+  const created = await requestJson(
+    `/users/${encodeURIComponent(userId)}/milestones`,
+    'POST',
+    { title: 'Deliver first anchored service', status: 'completed' },
+    { Authorization: `Bearer ${token}` }
+  );
+  assert.equal(created.status, 201);
+
+  const visibility = await requestJson(
+    `/users/${encodeURIComponent(userId)}/visibility`,
+    'PATCH',
+    { visibility: { legalName: true } },
+    { Authorization: `Bearer ${token}` }
+  );
+  assert.equal(visibility.status, 200);
+
+  const anchor = await requestJson(
+    `/users/${encodeURIComponent(userId)}/milestones/${encodeURIComponent(created.body.milestone.id)}/anchor`,
+    'POST',
+    { holderAddress, metadataUri: 'ipfs://milestone-anchor-1' },
+    { Authorization: `Bearer ${token}` }
+  );
+  assert.equal(anchor.status, 201);
+  assert.equal(anchor.body.success, true);
+  assert.equal(anchor.body.anchor.holderAddress, holderAddress);
+  assert.equal(typeof anchor.body.anchor.actionHash, 'string');
+  assert.equal(typeof anchor.body.milestone.metadata.onchainAnchor.txHash, 'string');
 });
 
 test('ai chat returns fallback response when model key is not configured', async () => {

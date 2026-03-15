@@ -13,10 +13,29 @@ contract LifePassTrustRegistry {
         string reason;
     }
 
+    struct ActionAnchor {
+        address holder;
+        bytes32 actionHash;
+        uint64 anchoredAt;
+        string actionType;
+        string metadataUri;
+        address anchoredBy;
+    }
+
     mapping(address => TrustRecord) private _trust;
+    mapping(bytes32 => ActionAnchor) private _anchors;
+    mapping(address => bytes32[]) private _holderAnchors;
 
     event TrustScoreUpdated(address indexed holder, uint16 score, string reason, uint64 updatedAt);
     event ScoreUpdaterSet(address indexed updater, bool enabled);
+    event ActionAnchored(
+        address indexed holder,
+        bytes32 indexed actionHash,
+        string actionType,
+        string metadataUri,
+        uint64 anchoredAt,
+        address anchoredBy
+    );
 
     modifier onlyOwner() {
         require(msg.sender == owner, "TrustRegistry: owner only");
@@ -49,7 +68,40 @@ contract LifePassTrustRegistry {
         emit TrustScoreUpdated(holder, score, reason, nowTs);
     }
 
+    function anchorAction(
+        address holder,
+        bytes32 actionHash,
+        string calldata actionType,
+        string calldata metadataUri
+    ) external onlyScoreUpdater {
+        require(holder != address(0), "TrustRegistry: holder is zero address");
+        require(actionHash != bytes32(0), "TrustRegistry: action hash is zero");
+        require(bytes(actionType).length > 0, "TrustRegistry: action type is required");
+        require(_anchors[actionHash].anchoredAt == 0, "TrustRegistry: action already anchored");
+
+        uint64 nowTs = uint64(block.timestamp);
+        _anchors[actionHash] = ActionAnchor({
+            holder: holder,
+            actionHash: actionHash,
+            anchoredAt: nowTs,
+            actionType: actionType,
+            metadataUri: metadataUri,
+            anchoredBy: msg.sender
+        });
+        _holderAnchors[holder].push(actionHash);
+
+        emit ActionAnchored(holder, actionHash, actionType, metadataUri, nowTs, msg.sender);
+    }
+
     function getTrustScore(address holder) external view returns (TrustRecord memory) {
         return _trust[holder];
+    }
+
+    function getActionAnchor(bytes32 actionHash) external view returns (ActionAnchor memory) {
+        return _anchors[actionHash];
+    }
+
+    function getActionHashes(address holder) external view returns (bytes32[] memory) {
+        return _holderAnchors[holder];
     }
 }

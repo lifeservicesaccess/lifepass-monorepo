@@ -31,4 +31,47 @@ async function mintSbt(userId, proof, opts = {}) {
   return `0xSIMULATED_TX_${userId}_${Date.now()}`;
 }
 
-module.exports = { mintSbt };
+async function anchorTrustAction(userId, opts = {}) {
+  const RPC_URL = process.env.RPC_URL;
+  const PRIVATE_KEY = process.env.PRIVATE_KEY;
+  const TRUST_REGISTRY_ADDRESS = process.env.TRUST_REGISTRY_ADDRESS;
+
+  if (RPC_URL && PRIVATE_KEY && TRUST_REGISTRY_ADDRESS) {
+    try {
+      const provider = new ethers.JsonRpcProvider(RPC_URL);
+      const wallet = new ethers.Wallet(PRIVATE_KEY, provider);
+      const abi = [
+        'function anchorAction(address holder, bytes32 actionHash, string actionType, string metadataUri) external'
+      ];
+      const contract = new ethers.Contract(TRUST_REGISTRY_ADDRESS, abi, wallet);
+      const holder = opts.holderAddress || wallet.address;
+      const actionHash = opts.actionHash;
+      const actionType = opts.actionType || 'milestone_completed';
+      const metadataUri = opts.metadataUri || '';
+
+      const tx = await contract.anchorAction(holder, actionHash, actionType, metadataUri);
+      await tx.wait();
+      return {
+        txHash: tx.hash,
+        simulated: false,
+        holderAddress: holder,
+        actionHash,
+        actionType,
+        metadataUri
+      };
+    } catch (err) {
+      console.error('wallet.anchorTrustAction error (ethers):', err);
+    }
+  }
+
+  return {
+    txHash: `0xSIMULATED_ANCHOR_${userId}_${Date.now()}`,
+    simulated: true,
+    holderAddress: opts.holderAddress || null,
+    actionHash: opts.actionHash,
+    actionType: opts.actionType || 'milestone_completed',
+    metadataUri: opts.metadataUri || ''
+  };
+}
+
+module.exports = { mintSbt, anchorTrustAction };
