@@ -52,7 +52,10 @@ function startApiServer() {
         ...process.env,
         PORT: String(API_PORT),
         API_KEY,
-        OPENAI_API_KEY: ''
+        OPENAI_API_KEY: '',
+        LIFEPASS_SSO_JWT_SECRET: 'test-sso-secret',
+        LIFEPASS_SSO_JWT_ISSUER: 'lifepass-api-test',
+        LIFEPASS_SSO_DEFAULT_AUDIENCE: 'zionstack-portals'
       },
       stdio: ['ignore', 'pipe', 'pipe']
     });
@@ -70,6 +73,12 @@ function startApiServer() {
       reject(new Error(`API exited early with code ${code}`));
     });
   });
+}
+
+async function issueToken(userId) {
+  const issued = await requestJson('/auth/sso/token', 'POST', { userId }, { 'x-api-key': API_KEY });
+  assert.equal(issued.status, 201);
+  return issued.body.token;
 }
 
 let server;
@@ -141,6 +150,46 @@ test('milestone create/update/list and dashboard summary work', async () => {
   assert.equal(dashboard.body.milestoneSummary.completed >= 1, true);
 });
 
+test('milestones and visibility support self-service via bearer token', async () => {
+  const userId = `user-self-${Date.now()}`;
+  const signup = await requestJson('/onboarding/signup', 'POST', {
+    userId,
+    name: 'Self Access User',
+    purpose: 'Coordinate trusted community work'
+  });
+  assert.equal(signup.status, 201);
+
+  const token = await issueToken(userId);
+  const created = await requestJson(
+    `/users/${encodeURIComponent(userId)}/milestones`,
+    'POST',
+    { title: 'Ship first community milestone', status: 'pending' },
+    { Authorization: `Bearer ${token}` }
+  );
+  assert.equal(created.status, 201);
+
+  const visibility = await requestJson(
+    `/users/${encodeURIComponent(userId)}/visibility`,
+    'PATCH',
+    { visibility: { legalName: true, trustScore: true, purposeStatement: true } },
+    { Authorization: `Bearer ${token}` }
+  );
+  assert.equal(visibility.status, 200);
+  assert.equal(visibility.body.visibility.legalName, true);
+  assert.equal(visibility.body.visibility.trustScore, true);
+
+  const dashboard = await requestJson(
+    `/users/${encodeURIComponent(userId)}/dashboard`,
+    'GET',
+    null,
+    { Authorization: `Bearer ${token}` }
+  );
+  assert.equal(dashboard.status, 200);
+  assert.equal(dashboard.body.success, true);
+  assert.equal(Array.isArray(dashboard.body.milestones), true);
+  assert.equal(dashboard.body.profile.visibility.legalName, true);
+});
+
 test('ai chat returns fallback response when model key is not configured', async () => {
   const userId = `user-chat-${Date.now()}`;
 
@@ -160,4 +209,6 @@ test('ai chat returns fallback response when model key is not configured', async
   assert.equal(response.body.success, true);
   assert.equal(typeof response.body.result.text, 'string');
   assert.equal(response.body.result.recommendedPortal, 'agri');
+  assert.equal(Array.isArray(response.body.result.kairosSignals), true);
+  assert.equal(typeof response.body.result.channels.whatsapp, 'string');
 });

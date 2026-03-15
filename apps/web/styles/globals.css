@@ -238,6 +238,42 @@ h3 {
 	margin-right: 0.33rem;
 }
 
+.lp-meta-grid {
+	margin-top: 0.8rem;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.5rem;
+}
+
+.lp-chip {
+	border-radius: 999px;
+	border: 1px solid #d8ccba;
+	background: #f5efe2;
+	padding: 0.34rem 0.68rem;
+	font-size: 0.82rem;
+	color: #42504d;
+}
+
+.lp-list {
+	display: grid;
+	gap: 0.38rem;
+	font-size: 0.9rem;
+	color: #364442;
+}
+
+.lp-mini-card {
+	margin-top: 0.72rem;
+	border: 1px solid #d8ccba;
+	border-radius: 0.85rem;
+	background: #faf5eb;
+	padding: 0.7rem 0.8rem;
+}
+
+.lp-mini-card p {
+	margin-top: 0.25rem;
+	color: #4b5855;
+}
+
 @media (min-width: 768px) {
 	.lp-page {
 		padding-top: 2.4rem;

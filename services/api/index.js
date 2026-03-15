@@ -730,6 +730,51 @@ function requireApiKey(req, res, next) {
   next();
 }
 
+function requireApiKeyOrSelfAccess(paramName = 'userId') {
+  return (req, res, next) => {
+    const apiKey = process.env.API_KEY;
+    const provided = req.header('x-api-key');
+    if (!apiKey || (provided && provided === apiKey)) {
+      return next();
+    }
+
+    const authHeader = req.header('authorization') || '';
+    const parts = authHeader.split(' ');
+    if (parts.length === 2 && /^Bearer$/i.test(parts[0]) && parts[1]) {
+      try {
+        const verified = ssoAuth.verifySsoToken(parts[1]);
+        const claims = verified?.claims || {};
+        const targetUserId = String(req.params[paramName] || '');
+        const tokenUserId = String(claims.lifePassId || claims.sub || '');
+        if (targetUserId && tokenUserId && tokenUserId === targetUserId) {
+          req.lifePassClaims = claims;
+          return next();
+        }
+        return res.status(403).json({ success: false, error: 'Forbidden: token does not match requested user' });
+      } catch (_err) {
+        return res.status(401).json({ success: false, error: 'Unauthorized' });
+      }
+    }
+
+    return res.status(401).json({ success: false, error: 'Unauthorized' });
+  };
+}
+
+function normalizeVisibilityPreferences(value) {
+  const input = value && typeof value === 'object' ? value : {};
+  return {
+    legalName: Boolean(input.legalName),
+    covenantName: input.covenantName !== false,
+    purposeStatement: input.purposeStatement !== false,
+    skills: Boolean(input.skills),
+    callings: Boolean(input.callings),
+    trustLevel: input.trustLevel !== false,
+    trustScore: Boolean(input.trustScore),
+    milestones: input.milestones !== false,
+    biometricPhoto: Boolean(input.biometricPhoto)
+  };
+}
+
 function requireSsoConfigured(req, res, next) {
   const config = ssoAuth.getSsoConfig();
   if (!config.configured) {
@@ -767,6 +812,7 @@ app.post('/onboarding/signup',
   body('verificationDocs').optional().isArray(),
   body('biometricPhotoRef').optional().isString(),
   body('biometricPhotoUrl').optional().isString(),
+  body('visibility').optional().isObject(),
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
@@ -786,7 +832,8 @@ app.post('/onboarding/signup',
         verificationDocs,
         biometricPhotoRef,
         biometricPhotoUrl,
-        biometric
+        biometric,
+        visibility
       } = req.body;
 
       const resolvedLegalName = String(legalName || name || '').trim();
@@ -838,6 +885,7 @@ app.post('/onboarding/signup',
           source: 'self-declared'
         },
         verificationDocs: resolvedDocs,
+        visibility: normalizeVisibilityPreferences(visibility),
         verificationStatus: 'pending',
         trustScore: trust.score,
         trustLevel: trust.level,
@@ -1204,7 +1252,7 @@ app.post('/trust/:userId/update',
   }
 );
 
-app.get('/users/:userId/dashboard', requireApiKey, async (req, res) => {
+app.get('/users/:userId/dashboard', requireApiKeyOrSelfAccess('userId'), async (req, res) => {
   try {
     const profile = await profileDb.getProfile(req.params.userId);
     if (!profile) return res.status(404).json({ success: false, error: 'Profile not found' });
@@ -1226,7 +1274,7 @@ app.get('/users/:userId/dashboard', requireApiKey, async (req, res) => {
   }
 });
 
-app.get('/users/:userId/milestones', requireApiKey, async (req, res) => {
+app.get('/users/:userId/milestones', requireApiKeyOrSelfAccess('userId'), async (req, res) => {
   try {
     const profile = await profileDb.getProfile(req.params.userId);
     if (!profile) return res.status(404).json({ success: false, error: 'Profile not found' });
@@ -1242,7 +1290,7 @@ app.get('/users/:userId/milestones', requireApiKey, async (req, res) => {
 });
 
 app.post('/users/:userId/milestones',
-  requireApiKey,
+  requireApiKeyOrSelfAccess('userId'),
   body('title').isString().notEmpty(),
   body('description').optional().isString(),
   body('status').optional().isIn(['pending', 'in_progress', 'completed']),
@@ -1267,7 +1315,7 @@ app.post('/users/:userId/milestones',
 );
 
 app.patch('/users/:userId/milestones/:milestoneId',
-  requireApiKey,
+  requireApiKeyOrSelfAccess('userId'),
   body('title').optional().isString().notEmpty(),
   body('description').optional().isString(),
   body('status').optional().isIn(['pending', 'in_progress', 'completed']),
@@ -1285,6 +1333,25 @@ app.patch('/users/:userId/milestones/:milestoneId',
     } catch (err) {
       console.error('milestone update error', err);
       return res.status(500).json({ success: false, error: err.message || 'Milestone update failed' });
+    }
+  }
+);
+
+app.patch('/users/:userId/visibility',
+  requireApiKeyOrSelfAccess('userId'),
+  body('visibility').isObject(),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
+    try {
+      const profile = await profileDb.getProfile(req.params.userId);
+      if (!profile) return res.status(404).json({ success: false, error: 'Profile not found' });
+      const visibility = normalizeVisibilityPreferences(req.body.visibility);
+      const updatedProfile = await profileDb.patchProfile(req.params.userId, { visibility });
+      return res.json({ success: true, visibility, profile: updatedProfile });
+    } catch (err) {
+      console.error('visibility update error', err);
+      return res.status(500).json({ success: false, error: 'Visibility update failed' });
     }
   }
 );
@@ -1353,23 +1420,40 @@ app.post('/auth/sso/verify',
   }
 );
 
-app.get('/pass/qr-payload/:userId', requireApiKey, async (req, res) => {
+app.get('/pass/qr-payload/:userId', requireApiKeyOrSelfAccess('userId'), async (req, res) => {
   try {
     const trust = await trustScoreStore.getTrustScore(req.params.userId);
-    const payload = await passQr.buildPassPayload(req.params.userId, trust);
-    return res.json({ success: true, payload });
+    const profile = await profileDb.getProfile(req.params.userId);
+    const payload = await passQr.buildPassPayload(req.params.userId, trust, profile);
+    const nfcPayload = passQr.buildNfcPayload(payload);
+    return res.json({ success: true, payload, nfcPayload });
   } catch (err) {
     console.error('pass/qr-payload error', err);
     return res.status(500).json({ success: false, error: 'Failed to generate pass payload' });
   }
 });
 
-app.get('/pass/qr/:userId', requireApiKey, async (req, res) => {
+app.get('/pass/nfc-payload/:userId', requireApiKeyOrSelfAccess('userId'), async (req, res) => {
   try {
     const trust = await trustScoreStore.getTrustScore(req.params.userId);
-    const payload = await passQr.buildPassPayload(req.params.userId, trust);
+    const profile = await profileDb.getProfile(req.params.userId);
+    const payload = await passQr.buildPassPayload(req.params.userId, trust, profile);
+    const nfcPayload = passQr.buildNfcPayload(payload);
+    return res.json({ success: true, payload, nfcPayload });
+  } catch (err) {
+    console.error('pass/nfc-payload error', err);
+    return res.status(500).json({ success: false, error: 'Failed to generate NFC pass payload' });
+  }
+});
+
+app.get('/pass/qr/:userId', requireApiKeyOrSelfAccess('userId'), async (req, res) => {
+  try {
+    const trust = await trustScoreStore.getTrustScore(req.params.userId);
+    const profile = await profileDb.getProfile(req.params.userId);
+    const payload = await passQr.buildPassPayload(req.params.userId, trust, profile);
     const qrDataUrl = await passQr.buildQrCodeDataUrl(payload);
-    return res.json({ success: true, payload, qrDataUrl });
+    const nfcPayload = passQr.buildNfcPayload(payload);
+    return res.json({ success: true, payload, nfcPayload, qrDataUrl });
   } catch (err) {
     console.error('pass/qr error', err);
     return res.status(500).json({ success: false, error: 'Failed to generate QR pass' });

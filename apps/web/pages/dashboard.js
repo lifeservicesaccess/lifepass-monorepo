@@ -14,13 +14,25 @@ function apiPath(pathname) {
 
 export default function DashboardPage() {
   const [userId, setUserId] = useState('');
+  const [accessMode, setAccessMode] = useState('api-key');
+  const [credential, setCredential] = useState('');
   const [data, setData] = useState(null);
   const [status, setStatus] = useState('');
+
+  function requestHeaders() {
+    if (!credential) return {};
+    if (accessMode === 'token') {
+      return { Authorization: `Bearer ${credential}` };
+    }
+    return { 'x-api-key': credential };
+  }
 
   async function loadDashboard() {
     try {
       setStatus('Loading...');
-      const res = await axios.get(apiPath(`/users/${encodeURIComponent(userId)}/dashboard`));
+      const res = await axios.get(apiPath(`/users/${encodeURIComponent(userId)}/dashboard`), {
+        headers: requestHeaders()
+      });
       if (res.data?.success) {
         setData(res.data);
         setStatus('Loaded profile and trust snapshot.');
@@ -56,6 +68,23 @@ export default function DashboardPage() {
             <div className="lp-actions" style={{ alignItems: 'end', marginTop: 0 }}>
               <button className="lp-button" onClick={loadDashboard} disabled={!userId}>Load Snapshot</button>
             </div>
+            <div>
+              <label className="lp-label" htmlFor="dashboardAccessMode">Access mode</label>
+              <select id="dashboardAccessMode" className="lp-select" value={accessMode} onChange={(e) => setAccessMode(e.target.value)}>
+                <option value="api-key">API key</option>
+                <option value="token">Bearer token</option>
+              </select>
+            </div>
+            <div>
+              <label className="lp-label" htmlFor="dashboardCredential">Credential</label>
+              <input
+                id="dashboardCredential"
+                className="lp-input"
+                value={credential}
+                onChange={(e) => setCredential(e.target.value)}
+                placeholder={accessMode === 'token' ? 'Paste LifePass bearer token' : 'Paste API key'}
+              />
+            </div>
           </div>
           {status ? <p className="lp-status">{status}</p> : null}
         </section>
@@ -71,6 +100,30 @@ export default function DashboardPage() {
               <p><span>Trust level:</span>{data.trust?.level}</p>
               <p><span>Reason:</span>{data.trust?.reason}</p>
             </div>
+            <div className="lp-meta-grid">
+              <div className="lp-chip">Completed: {data.milestoneSummary?.completed || 0}</div>
+              <div className="lp-chip">In progress: {data.milestoneSummary?.inProgress || 0}</div>
+              <div className="lp-chip">Pending: {data.milestoneSummary?.pending || 0}</div>
+            </div>
+            {Array.isArray(data.badges) && data.badges.length > 0 ? (
+              <div className="lp-meta-grid">
+                {data.badges.map((badge) => (
+                  <div key={badge.code} className="lp-chip">{badge.name}</div>
+                ))}
+              </div>
+            ) : null}
+            {data.profile?.visibility ? (
+              <div className="lp-list" style={{ marginTop: '0.8rem' }}>
+                <p>Visible on pass: {Object.entries(data.profile.visibility).filter(([, enabled]) => enabled).map(([key]) => key).join(', ') || 'none'}</p>
+              </div>
+            ) : null}
+            {Array.isArray(data.milestones) && data.milestones.length > 0 ? (
+              <div className="lp-list" style={{ marginTop: '0.8rem' }}>
+                {data.milestones.map((milestone) => (
+                  <p key={milestone.id}>{milestone.title} · {milestone.status}</p>
+                ))}
+              </div>
+            ) : null}
           </section>
         ) : null}
       </div>

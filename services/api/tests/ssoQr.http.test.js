@@ -123,15 +123,38 @@ test('POST /auth/sso/verify validates issued token', async () => {
 test('GET /pass/qr and /pass/qr-payload return LifePass pass artifacts', async () => {
   const userId = `qr-user-${Date.now()}`;
 
+  const issued = await requestJson(
+    '/auth/sso/token',
+    'POST',
+    { userId, audience: 'zionstack-portals' },
+    { 'x-api-key': API_KEY }
+  );
+  assert.equal(issued.status, 201);
+
   const payloadRes = await requestJson(`/pass/qr-payload/${userId}`, 'GET', null, { 'x-api-key': API_KEY });
   assert.equal(payloadRes.status, 200);
   assert.equal(payloadRes.body.success, true);
   assert.equal(payloadRes.body.payload.lifePassId, userId);
   assert.ok(payloadRes.body.payload.trustLevel);
+  assert.equal(payloadRes.body.nfcPayload.format, 'ndef-text');
+
+  const selfPayloadRes = await requestJson(`/pass/qr-payload/${userId}`, 'GET', null, {
+    Authorization: `Bearer ${issued.body.token}`
+  });
+  assert.equal(selfPayloadRes.status, 200);
+  assert.equal(selfPayloadRes.body.success, true);
+
+  const nfcRes = await requestJson(`/pass/nfc-payload/${userId}`, 'GET', null, {
+    Authorization: `Bearer ${issued.body.token}`
+  });
+  assert.equal(nfcRes.status, 200);
+  assert.equal(nfcRes.body.success, true);
+  assert.ok(String(nfcRes.body.nfcPayload.text).includes(userId));
 
   const qrRes = await requestJson(`/pass/qr/${userId}`, 'GET', null, { 'x-api-key': API_KEY });
   assert.equal(qrRes.status, 200);
   assert.equal(qrRes.body.success, true);
   assert.equal(qrRes.body.payload.lifePassId, userId);
   assert.ok(String(qrRes.body.qrDataUrl).startsWith('data:image/png;base64,'));
+  assert.equal(qrRes.body.nfcPayload.format, 'ndef-text');
 });
