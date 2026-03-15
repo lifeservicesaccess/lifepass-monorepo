@@ -216,6 +216,20 @@ function Wait-ForPort {
   return $false
 }
 
+function Test-LifepassApiHealth {
+  param(
+    [string]$BaseUrl = 'http://localhost:3003',
+    [int]$TimeoutSeconds = 5
+  )
+
+  try {
+    $health = Invoke-RestMethod -Uri ($BaseUrl.TrimEnd('/') + '/health') -Method Get -TimeoutSec $TimeoutSeconds
+    return ($health.success -eq $true -and $health.service -eq 'lifepass-api')
+  } catch {
+    return $false
+  }
+}
+
 function Invoke-ReadinessApply {
   param(
     [string]$Mode
@@ -345,13 +359,31 @@ $stderrPath = Join-Path $logDir 'api-stderr.log'
 if (Test-Path $stdoutPath) { Remove-Item $stdoutPath -Force }
 if (Test-Path $stderrPath) { Remove-Item $stderrPath -Force }
 
-Write-Host 'Starting API server for smoke run...' -ForegroundColor Cyan
-$apiProc = Start-Process -FilePath node -ArgumentList 'index.js' -WorkingDirectory $apiDir -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath -PassThru
+$apiProc = $null
+$usingExistingApi = $false
+
+if (Wait-ForPort -HostName '127.0.0.1' -Port 3003 -TimeoutSeconds 1) {
+  if (Test-LifepassApiHealth -BaseUrl 'http://localhost:3003' -TimeoutSeconds 5) {
+    Write-Host 'Port 3003 is already serving lifepass-api; reusing existing local API for smoke run.' -ForegroundColor Yellow
+    $usingExistingApi = $true
+  } else {
+    throw 'Port 3003 is already in use by another process. Stop that process or free the port before running scripts/testnet-smoke.ps1.'
+  }
+}
+
+if (-not $usingExistingApi) {
+  Write-Host 'Starting API server for smoke run...' -ForegroundColor Cyan
+  $apiProc = Start-Process -FilePath node -ArgumentList 'index.js' -WorkingDirectory $apiDir -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath -PassThru
+}
 
 try {
   if (-not (Wait-ForPort -HostName '127.0.0.1' -Port 3003 -TimeoutSeconds 30)) {
     $stderr = if (Test-Path $stderrPath) { Get-Content $stderrPath -Raw } else { '' }
     throw "API did not become ready on port 3003. STDERR:`n$stderr"
+  }
+
+  if (-not (Test-LifepassApiHealth -BaseUrl 'http://localhost:3003' -TimeoutSeconds 5)) {
+    throw 'Port 3003 became reachable, but the service did not identify as lifepass-api via /health.'
   }
 
   Invoke-SmokeTests -ApiDir $apiDir -Mode $Mode -AllowSimulatedMint:$AllowSimulatedMint -UseSnark:($preflight.Values.USE_SNARKJS -eq '1') -ApiKey $preflight.Values.API_KEY
