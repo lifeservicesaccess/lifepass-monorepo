@@ -39,6 +39,8 @@ Then edit both `.env.local` files and run:
 powershell -ExecutionPolicy Bypass -File .\scripts\testnet-readiness.ps1 -Mode testnet -Apply
 ```
 
+For deployed web environments, the mint button now goes through the Next.js server route `/api/mint`, so set `API_KEY` and either `API_BASE_URL` or `NEXT_PUBLIC_API_BASE_URL` in `apps/web` deployment settings.
+
 Then run end-to-end API smoke checks (auto-starts API and stops it when done):
 
 ```powershell

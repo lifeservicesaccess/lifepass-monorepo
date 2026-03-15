@@ -25,8 +25,12 @@ The web client is located under `apps/web`.  It uses Next.js and React to provid
 
 For local development, the web app proxies `/proof`, `/sbt`, and `/flow` to `LOCAL_API_BASE_URL` (default `http://localhost:3003`) via Next.js rewrites.
 
+The production mint flow uses the server-side route `apps/web/pages/api/mint.js`. The browser now calls `/api/mint`, and that route forwards to `/sbt/mint` with the server-only API key.
+
 For deployed environments (for example Vercel), set:
 - `NEXT_PUBLIC_API_BASE_URL=https://<your-api-domain>`
+- `API_BASE_URL=https://<your-api-domain>`
+- `API_KEY=<same backend API key used by services/api>`
 
 and ensure your API service allows CORS from the web app domain.
 
@@ -36,10 +40,12 @@ and ensure your API service allows CORS from the web app domain.
 2. Add environment variables in Vercel Project Settings:
   - `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID`
   - `NEXT_PUBLIC_API_BASE_URL` (public HTTPS URL of your deployed API)
+  - `API_BASE_URL` (server-side upstream target for Next.js API routes)
+  - `API_KEY` (server-side secret used by `/api/mint`)
 3. Deploy the API service separately (Render/Railway/Fly/VM).
 4. Trigger a redeploy of the Vercel app after env vars are set.
 
-This split deployment is required because local rewrites target `localhost` and are development-only.
+This split deployment is required because local rewrites target `localhost` and are development-only, while the production mint path depends on a trusted server-side proxy.
 
 ### Extending the Interface
 

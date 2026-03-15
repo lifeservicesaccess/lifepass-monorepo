@@ -66,7 +66,7 @@ export default function Home() {
         verificationLevel: 'Silver',
         didUri: ''
       };
-      const mintRes = await axios.post(apiPath('/sbt/mint'), {
+      const mintRes = await axios.post('/api/mint', {
         to: wallet,
         tokenId,
         metadata: meta
