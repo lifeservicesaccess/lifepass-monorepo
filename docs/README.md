@@ -23,6 +23,9 @@ mkdocs serve
 - `onboarding.md` — User signup, verification workflow and trust-score lifecycle.
 - `multi-portal.md` — Backend portal module design and routing strategy.
 - `ai-guide.md` — AI chat guide and vector embedding/search integration notes.
+- `render-mcp.md` — Connect Render's hosted MCP server to Cursor and Claude Code for deploy, log, metrics, and build-failure diagnosis.
+- `render-log-playbook.md` — Short mapping of common Render log signatures and request failures to likely fixes for LifePass.
+- `render-oncall-checklist.md` — One-page incident checklist with exact Render dashboard actions for LifePass outages and deploy failures.
 - `lifepass-portal-blueprint.md` — Product blueprint for the LifePass portal, including core layers, user journey, launch strategy, MVP stack, and monorepo milestone mapping.
 
 Each of these files is currently a placeholder and should be expanded by the appropriate specialist GPTs or human collaborators as development progresses.
