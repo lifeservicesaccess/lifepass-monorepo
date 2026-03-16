@@ -20,3 +20,10 @@ dist/
 # Foundry build artifacts
 contracts/out/
 contracts/cache/
+
+# Local smoke and SNARK debug outputs
+services/api/.smoke.exit.txt
+services/api/.smoke.out.txt
+services/api/.snark-exit.txt
+services/api/.snark-build.log
+zk/snark_status.txt
