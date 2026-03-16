@@ -228,6 +228,14 @@ async function runCircomCompileDirect({ repoRoot, circuitPath, includePath, outp
   }
 }
 
+async function runSnarkjsDirect(stepName, action) {
+  try {
+    await action();
+  } catch (err) {
+    fail(stepName, err && err.stack ? err.stack : String(err));
+  }
+}
+
 async function main() {
   const apiDir = path.resolve(__dirname, '..');
   const repoRoot = path.resolve(apiDir, '..', '..');
@@ -238,13 +246,15 @@ async function main() {
   const circomCmd =
     resolveNodeCli(apiDir, 'circom2', 'cli.js', 'local-node:circom2/cli.js')
     || resolveCommand(apiDir, ['circom2', 'circom'], ['circom2', 'circom']);
-
-  const snarkjsCmd =
-    resolveNodeCli(apiDir, 'snarkjs', 'cli.js', 'local-node:snarkjs/cli.js')
-    || resolveCommand(apiDir, ['snarkjs'], ['snarkjs']);
+  let snarkjs;
+  try {
+    snarkjs = require('snarkjs');
+  } catch (err) {
+    fail('Cannot load snarkjs module', String(err));
+  }
 
   console.log(`Using circom command source: ${circomCmd.source}`);
-  console.log(`Using snarkjs command source: ${snarkjsCmd.source}`);
+  console.log('Using snarkjs command source: local-node:snarkjs/module-api');
 
   const requiredLibDir = path.join(apiDir, 'node_modules', 'circomlib');
   if (!fs.existsSync(requiredLibDir)) {
@@ -316,79 +326,61 @@ async function main() {
   }
   assertFileExists(canonicalWasmPath, 'Canonical WASM');
 
-  runCommand(
-    snarkjsCmd,
-    ['powersoftau', 'new', 'bn128', '14', path.join(buildDir, 'pot14_0000.ptau')],
-    repoRoot,
-    'Create initial PTAU'
-  );
+  const bn128 = await snarkjs.curves.getCurveFromName('bn128');
 
-  runCommand(
-    snarkjsCmd,
-    [
-      'powersoftau',
-      'contribute',
+  await runSnarkjsDirect('Create initial PTAU', async () => {
+    await snarkjs.powersOfTau.newAccumulator(
+      bn128,
+      14,
+      path.join(buildDir, 'pot14_0000.ptau'),
+      console
+    );
+  });
+
+  await runSnarkjsDirect('Contribute deterministic PTAU', async () => {
+    await snarkjs.powersOfTau.contribute(
       path.join(buildDir, 'pot14_0000.ptau'),
       path.join(buildDir, 'pot14_0001.ptau'),
-      '--name=lifepass-local',
-      '-e=lifepass-deterministic-ptau-seed-v1',
-    ],
-    repoRoot,
-    'Contribute deterministic PTAU'
-  );
+      'lifepass-local',
+      'lifepass-deterministic-ptau-seed-v1',
+      console
+    );
+  });
 
-  runCommand(
-    snarkjsCmd,
-    [
-      'powersoftau',
-      'prepare',
-      'phase2',
+  await runSnarkjsDirect('Prepare PTAU phase2', async () => {
+    await snarkjs.powersOfTau.preparePhase2(
       path.join(buildDir, 'pot14_0001.ptau'),
       path.join(buildDir, 'pot14_final.ptau'),
-    ],
-    repoRoot,
-    'Prepare PTAU phase2'
-  );
+      console
+    );
+  });
 
-  runCommand(
-    snarkjsCmd,
-    [
-      'groth16',
-      'setup',
+  await runSnarkjsDirect('Groth16 setup', async () => {
+    await snarkjs.zKey.newZKey(
       path.join(zkDir, 'over18.r1cs'),
       path.join(buildDir, 'pot14_final.ptau'),
       path.join(zkDir, 'over18_0000.zkey'),
-    ],
-    repoRoot,
-    'Groth16 setup'
-  );
+      console
+    );
+  });
 
-  runCommand(
-    snarkjsCmd,
-    [
-      'zkey',
-      'contribute',
+  await runSnarkjsDirect('Contribute deterministic zkey', async () => {
+    await snarkjs.zKey.contribute(
       path.join(zkDir, 'over18_0000.zkey'),
       path.join(zkDir, 'over18.zkey'),
-      '--name=lifepass-zkey',
-      '-e=lifepass-deterministic-zkey-seed-v1',
-    ],
-    repoRoot,
-    'Contribute deterministic zkey'
-  );
+      'lifepass-zkey',
+      'lifepass-deterministic-zkey-seed-v1',
+      console
+    );
+  });
 
-  runCommand(
-    snarkjsCmd,
-    [
-      'zkey',
-      'export',
-      'verificationkey',
+  await runSnarkjsDirect('Export verification key', async () => {
+    const verificationKey = await snarkjs.zKey.exportVerificationKey(
       path.join(zkDir, 'over18.zkey'),
-      path.join(zkDir, 'over18.vkey'),
-    ],
-    repoRoot,
-    'Export verification key'
-  );
+      console
+    );
+    fs.writeFileSync(path.join(zkDir, 'over18.vkey'), `${JSON.stringify(verificationKey, null, 2)}\n`);
+  });
 
   assertFileExists(path.join(zkDir, 'over18.zkey'), 'Final zkey');
   assertFileExists(path.join(zkDir, 'over18.vkey'), 'Verification key');
