@@ -164,6 +164,8 @@ async function runCircomCompileDirect({ repoRoot, circuitPath, includePath, outp
   }
 
   const oldCwd = process.cwd();
+  let runnerExitCode = null;
+  let runnerSignal = null;
   try {
     process.chdir(repoRoot);
     const runner = new circom2.CircomRunner({
@@ -174,10 +176,12 @@ async function runCircomCompileDirect({ repoRoot, circuitPath, includePath, outp
         ...circom2.bindings,
         fs,
         exit(code) {
-          process.exit(code);
+          runnerExitCode = Number(code) || 0;
+          throw new Error(`CIRCOM_RUNNER_EXIT_${runnerExitCode}`);
         },
         kill(signal) {
-          process.kill(process.pid, signal);
+          runnerSignal = String(signal || 'UNKNOWN');
+          throw new Error(`CIRCOM_RUNNER_SIGNAL_${runnerSignal}`);
         },
       },
     });
@@ -185,6 +189,32 @@ async function runCircomCompileDirect({ repoRoot, circuitPath, includePath, outp
     const wasmBytes = fs.readFileSync(require.resolve('circom2/circom.wasm'));
     await runner.execute(wasmBytes);
   } catch (err) {
+    const message = err && err.message ? err.message : String(err);
+
+    if (message === `CIRCOM_RUNNER_EXIT_${runnerExitCode}`) {
+      if (runnerExitCode === 0) {
+        return;
+      }
+
+      fail(
+        `Compile circuit with circom2: direct runner exited with code ${runnerExitCode}`,
+        [
+          'Command source: local-node:circom2/direct-runner',
+          `Args: ${args.join(' ')}`,
+        ].join('\n')
+      );
+    }
+
+    if (runnerSignal && message === `CIRCOM_RUNNER_SIGNAL_${runnerSignal}`) {
+      fail(
+        `Compile circuit with circom2: direct runner killed by signal ${runnerSignal}`,
+        [
+          'Command source: local-node:circom2/direct-runner',
+          `Args: ${args.join(' ')}`,
+        ].join('\n')
+      );
+    }
+
     fail(
       'Compile circuit with circom2: direct runner failed',
       [
@@ -236,7 +266,6 @@ async function main() {
   const generatedTargets = [
     path.join(zkDir, 'over18.r1cs'),
     path.join(zkDir, 'over18.sym'),
-    path.join(zkDir, 'over18.wasm'),
     path.join(zkDir, 'over18_0000.zkey'),
     path.join(zkDir, 'over18.zkey'),
     path.join(zkDir, 'over18.vkey'),
@@ -275,11 +304,16 @@ async function main() {
   }
 
   assertFileExists(path.join(zkDir, 'over18.r1cs'), 'Compiled R1CS');
-  assertFileExists(compiledWasmFromCircom, 'Compiled WASM');
+  const resolvedCompiledWasmPath = fs.existsSync(compiledWasmFromCircom)
+    ? compiledWasmFromCircom
+    : canonicalWasmPath;
+  assertFileExists(resolvedCompiledWasmPath, 'Compiled WASM');
   assertFileExists(path.join(zkDir, 'over18.sym'), 'Compiled SYM');
 
   // circom emits wasm under over18_js; keep a stable root-level wasm path for API env usage.
-  fs.copyFileSync(compiledWasmFromCircom, canonicalWasmPath);
+  if (resolvedCompiledWasmPath !== canonicalWasmPath) {
+    fs.copyFileSync(resolvedCompiledWasmPath, canonicalWasmPath);
+  }
   assertFileExists(canonicalWasmPath, 'Canonical WASM');
 
   runCommand(
