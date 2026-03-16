@@ -230,6 +230,9 @@ async function main() {
 
   ensureDir(buildDir);
 
+  const compiledWasmFromCircom = path.join(zkDir, 'over18_js', 'over18.wasm');
+  const canonicalWasmPath = path.join(zkDir, 'over18.wasm');
+
   const generatedTargets = [
     path.join(zkDir, 'over18.r1cs'),
     path.join(zkDir, 'over18.sym'),
@@ -272,8 +275,12 @@ async function main() {
   }
 
   assertFileExists(path.join(zkDir, 'over18.r1cs'), 'Compiled R1CS');
-  assertFileExists(path.join(zkDir, 'over18.wasm'), 'Compiled WASM');
+  assertFileExists(compiledWasmFromCircom, 'Compiled WASM');
   assertFileExists(path.join(zkDir, 'over18.sym'), 'Compiled SYM');
+
+  // circom emits wasm under over18_js; keep a stable root-level wasm path for API env usage.
+  fs.copyFileSync(compiledWasmFromCircom, canonicalWasmPath);
+  assertFileExists(canonicalWasmPath, 'Canonical WASM');
 
   runCommand(
     snarkjsCmd,
@@ -353,7 +360,7 @@ async function main() {
   assertFileExists(path.join(zkDir, 'over18.vkey'), 'Verification key');
 
   console.log('SNARK artifact build complete.');
-  console.log(`WASM: ${path.join(zkDir, 'over18.wasm')}`);
+  console.log(`WASM: ${canonicalWasmPath}`);
   console.log(`ZKEY: ${path.join(zkDir, 'over18.zkey')}`);
   console.log(`VKEY: ${path.join(zkDir, 'over18.vkey')}`);
 }
