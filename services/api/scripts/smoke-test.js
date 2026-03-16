@@ -35,10 +35,30 @@ function post(path, data, extraHeaders = {}) {
 (async () => {
   try {
     const tokenId = Math.floor(Date.now() / 1000);
+    const birthYear = new Date().getFullYear() - 25;
+
+    console.log('-> POST /proof/generate');
+    let r = await post('/proof/generate', { birthYear });
+    console.log(r.statusCode, r.body);
+
+    if (r.statusCode !== 200) {
+      throw new Error('proof generation failed');
+    }
+
+    const generated = JSON.parse(r.body || '{}');
+    if (!generated.proof || !generated.publicSignals) {
+      throw new Error('proof generation returned incomplete payload');
+    }
 
     console.log('-> POST /proof/submit');
-    let r = await post('/proof/submit', { proof: '0x1234', publicSignals: { is_over_18: 1 } });
+    r = await post('/proof/submit', {
+      proof: generated.proof,
+      publicSignals: generated.publicSignals,
+    });
     console.log(r.statusCode, r.body);
+    if (r.statusCode !== 200) {
+      throw new Error('proof submit failed');
+    }
 
     console.log('\n-> POST /sbt/mint');
     const mintHeaders = apiKey ? { 'x-api-key': apiKey } : {};

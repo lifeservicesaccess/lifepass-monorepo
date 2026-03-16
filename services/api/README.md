@@ -35,6 +35,7 @@ $env:DEPLOY_GAS_STRATEGY='provider'; npm run deploy:sbt
 
 ## API Endpoints
 - `POST /flow/mint` — Full flow: fetch profile, ZK proof, on-chain verify, mint SBT
+- `POST /proof/generate` — Generate proof payload from `birthYear` (SNARKJS when enabled, simulated fallback otherwise)
 - `POST /proof/verify-onchain` — Verify proof using on-chain contract (or fallback)
 - `POST /sbt/mint` — Direct mint (requires contract configured)
 - `POST /onboarding/signup` — Create profile with purpose/skills and verification docs

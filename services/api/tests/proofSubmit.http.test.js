@@ -101,6 +101,15 @@ test('POST /proof/submit returns 400 for missing proof/publicSignals payload fie
   });
 });
 
+test('POST /proof/generate returns proof payload for a valid birth year', async () => {
+  const res = await postJson('/proof/generate', { birthYear: 2000 });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.success, true);
+  assert.equal(typeof res.body.proof, 'string');
+  assert.ok(res.body.proof.startsWith('0x'));
+  assert.ok(res.body.publicSignals);
+});
+
 test('POST /proof/submit returns 400 for malformed proof format', async () => {
   const res = await postJson('/proof/submit', {
     proof: 'SIMULATED_PROOF',

@@ -48,11 +48,18 @@ export default function Home() {
     }
     try {
       setStatus('Generating proof...');
-      const currentYear = new Date().getFullYear();
-      const is_over_18 = currentYear - parseInt(birthYear || '0', 10) >= 18 ? 1 : 0;
+      const numericBirthYear = parseInt(birthYear || '0', 10);
+      const proofGenRes = await axios.post(apiPath('/proof/generate'), {
+        birthYear: numericBirthYear
+      });
+      if (!proofGenRes.data.success) {
+        setStatus('Proof generation failed: ' + (proofGenRes.data.error || 'unknown error'));
+        return;
+      }
+
       const proofRes = await axios.post(apiPath('/proof/submit'), {
-        proof: '0x1234',
-        publicSignals: { is_over_18 }
+        proof: proofGenRes.data.proof,
+        publicSignals: proofGenRes.data.publicSignals
       });
       if (!proofRes.data.success) {
         setStatus('Proof failed: ' + (proofRes.data.error || 'unknown error'));

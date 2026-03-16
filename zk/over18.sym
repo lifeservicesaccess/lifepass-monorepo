@@ -1,0 +1,17 @@
+1,1,2,main.is_over_18
+2,2,2,main.birth_year
+3,3,2,main.current_year
+4,4,2,main.age
+5,5,1,main.less.out
+6,-1,1,main.less.in[0]
+7,-1,1,main.less.in[1]
+8,6,0,main.less.n2b.out[0]
+9,7,0,main.less.n2b.out[1]
+10,8,0,main.less.n2b.out[2]
+11,9,0,main.less.n2b.out[3]
+12,10,0,main.less.n2b.out[4]
+13,11,0,main.less.n2b.out[5]
+14,12,0,main.less.n2b.out[6]
+15,13,0,main.less.n2b.out[7]
+16,14,0,main.less.n2b.out[8]
+17,15,0,main.less.n2b.in

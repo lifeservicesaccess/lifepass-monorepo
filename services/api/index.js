@@ -599,6 +599,41 @@ app.get('/health', (_req, res) => {
 });
 
 /**
+ * POST /proof/generate
+ * Build an age proof payload from user birth year using the configured zk engine.
+ */
+app.post('/proof/generate',
+  publicRateLimit,
+  body('birthYear').isInt({ min: 1900, max: 2100 }),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, errors: errors.array() });
+    }
+
+    try {
+      const birthYear = Number(req.body.birthYear);
+      const profile = { dob: `${birthYear}-01-01` };
+      const generated = await zkProof.generateOver18Proof(`web-${Date.now()}`, profile);
+
+      if (!generated || !generated.proof || !generated.publicSignals) {
+        return res.status(500).json({ success: false, error: 'Failed to generate proof payload' });
+      }
+
+      return res.json({
+        success: true,
+        proof: generated.proof,
+        publicSignals: generated.publicSignals,
+        mode: process.env.USE_SNARKJS === '1' ? 'snarkjs' : 'simulated'
+      });
+    } catch (err) {
+      console.error('proof/generate error', err);
+      return res.status(500).json({ success: false, error: 'Error generating proof' });
+    }
+  }
+);
+
+/**
  * POST /proof/submit
  * Receive a zkSNARK proof for the over-18 predicate and verify it through the shared
  * verification utility. If verifier contract config is absent, this falls back to local

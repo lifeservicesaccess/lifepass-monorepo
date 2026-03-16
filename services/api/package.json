@@ -8,6 +8,7 @@
     "db:migrate": "node scripts/run_migrations.js",
     "check:schema": "node scripts/check_schema.js",
     "validate:snark": "node scripts/validate_snark_artifacts.js",
+    "build:snark": "node scripts/build_snark_artifacts.js",
     "deploy:sbt": "node scripts/deploy_contract.js",
     "deploy:sbt:dry": "node -e \"const m=require('./scripts/deploy_contract'); process.env.DEPLOY_DRY_RUN='1'; m.deploy().then((r)=>{console.log('Deploy result', r);}).catch((e)=>{console.error('Deploy failed:', e); process.exit(1);});\"",
     "deploy:trust-registry": "node scripts/deploy_trust_registry.js",
@@ -27,5 +28,9 @@
     "qrcode": "^1.5.4",
     "snarkjs": "^0.7.5",
     "solc": "^0.8.0"
+  },
+  "devDependencies": {
+    "circom2": "^0.2.22",
+    "circomlib": "^2.0.5"
   }
 }
