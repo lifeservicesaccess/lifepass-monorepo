@@ -27,3 +27,13 @@ services/api/.smoke.out.txt
 services/api/.snark-exit.txt
 services/api/.snark-build.log
 zk/snark_status.txt
+
+# Generated SNARK artifacts
+zk/build/
+zk/over18.wasm
+zk/over18.r1cs
+zk/over18.sym
+zk/over18_js/
+zk/over18_0000.zkey
+zk/over18.zkey
+zk/over18.vkey
