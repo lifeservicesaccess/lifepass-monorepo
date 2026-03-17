@@ -13,12 +13,25 @@ function apiPath(pathname) {
   return `${configured}${pathname}`;
 }
 
+function apiTargetLabel() {
+  const configured = normalizeBaseUrl(process.env.NEXT_PUBLIC_API_BASE_URL);
+  if (configured) return configured;
+
+  if (process.env.NODE_ENV === 'development') {
+    const rewriteTarget = normalizeBaseUrl(process.env.LOCAL_API_BASE_URL || 'http://localhost:3003');
+    return `relative paths (dev rewrite -> ${rewriteTarget})`;
+  }
+
+  return 'relative paths (same origin)';
+}
+
 export default function DashboardPage() {
   const [userId, setUserId] = useState('');
   const [accessMode, setAccessMode] = useState('api-key');
   const [credential, setCredential] = useState('');
   const [data, setData] = useState(null);
   const [status, setStatus] = useState('');
+  const apiTarget = apiTargetLabel();
 
   function requestHeaders() {
     if (!credential) return {};
@@ -29,6 +42,19 @@ export default function DashboardPage() {
   }
 
   async function loadDashboard() {
+    if (!userId.trim()) {
+      setStatus('Enter a user ID, then load the snapshot.');
+      setData(null);
+      return;
+    }
+    if (!credential.trim()) {
+      setStatus(accessMode === 'token'
+        ? 'Paste a bearer token, then load the snapshot.'
+        : 'Paste an API key, then load the snapshot.');
+      setData(null);
+      return;
+    }
+
     try {
       setStatus('Loading...');
       const res = await axios.get(apiPath(`/users/${encodeURIComponent(userId)}/dashboard`), {
@@ -41,8 +67,17 @@ export default function DashboardPage() {
         setStatus(res.data?.error || 'Failed to load dashboard');
       }
     } catch (err) {
-      setStatus(`Dashboard error: ${err.message}`);
+      const backendError = err?.response?.data?.error;
+      const statusCode = err?.response?.status;
+      setStatus(`Dashboard error${statusCode ? ` [${statusCode}]` : ''}: ${backendError || err.message}`);
       setData(null);
+    }
+  }
+
+  function handleLookupKeyDown(event) {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      loadDashboard();
     }
   }
 
@@ -59,8 +94,14 @@ export default function DashboardPage() {
           <Link href="/admin">Admin Console</Link>
         </div>
 
+        <div className="lp-badge">
+          <span className="font-semibold">API target:</span>{' '}
+          <span className="lp-mono">{apiTarget}</span>
+        </div>
+
         <section className="lp-panel">
           <h2 className="lp-panel-title">Lookup</h2>
+          <p className="lp-subtitle">Paste your API key or bearer token, enter the user ID, then click Load Snapshot or press Enter.</p>
           <div className="lp-grid lp-grid-2" style={{ marginTop: '0.76rem' }}>
             <div>
               <label className="lp-label" htmlFor="dashboardUserId">User ID</label>
@@ -69,11 +110,12 @@ export default function DashboardPage() {
                 className="lp-input"
                 value={userId}
                 onChange={(e) => setUserId(e.target.value)}
+                onKeyDown={handleLookupKeyDown}
                 placeholder="Enter userId"
               />
             </div>
             <div className="lp-actions" style={{ alignItems: 'end', marginTop: 0 }}>
-              <button className="lp-button" onClick={loadDashboard} disabled={!userId}>Load Snapshot</button>
+              <button className="lp-button" onClick={loadDashboard} disabled={!userId.trim() || !credential.trim()}>Load Snapshot</button>
             </div>
             <div>
               <label className="lp-label" htmlFor="dashboardAccessMode">Access mode</label>
@@ -89,6 +131,7 @@ export default function DashboardPage() {
                 className="lp-input"
                 value={credential}
                 onChange={(e) => setCredential(e.target.value)}
+                onKeyDown={handleLookupKeyDown}
                 placeholder={accessMode === 'token' ? 'Paste LifePass bearer token' : 'Paste API key'}
               />
             </div>
