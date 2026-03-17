@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import axios from 'axios';
+import Link from 'next/link';
 
 function normalizeBaseUrl(baseUrl) {
   if (!baseUrl) return '';
@@ -51,6 +52,12 @@ export default function DashboardPage() {
         <span className="lp-kicker">Trust Lens</span>
         <h1 className="lp-title">LifePass Dashboard</h1>
         <p className="lp-subtitle">Fetch a user snapshot to inspect profile, trust level, and mint readiness context.</p>
+
+        <div className="lp-nav">
+          <Link href="/">Mint Portal</Link>
+          <Link href="/signup">Onboarding</Link>
+          <Link href="/admin">Admin Console</Link>
+        </div>
 
         <section className="lp-panel">
           <h2 className="lp-panel-title">Lookup</h2>

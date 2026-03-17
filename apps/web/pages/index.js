@@ -110,6 +110,7 @@ export default function Home() {
         <div className="lp-nav">
           <Link href="/signup">Onboarding</Link>
           <Link href="/dashboard">Dashboard</Link>
+          <Link href="/admin">Admin Console</Link>
         </div>
 
         <div className="lp-badge">

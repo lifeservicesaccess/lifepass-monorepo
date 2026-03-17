@@ -103,3 +103,28 @@ test('startup strict passes when verifier gate is enabled and AGE_VERIFIER_ADDRE
     if (!child.killed) child.kill();
   }
 });
+
+test('startup strict fails when durable governance is required without Postgres config', async () => {
+  const child = spawn('node', ['index.js'], {
+    cwd: API_CWD,
+    env: {
+      ...process.env,
+      PORT: '3027',
+      STARTUP_STRICT: '1',
+      REQUIRE_DURABLE_GOVERNANCE: '1',
+      DATABASE_URL: '',
+      PG_CONNECTION_STRING: '',
+      AGE_VERIFIER_ADDRESS: '0x0000000000000000000000000000000000000001',
+      PRIVATE_KEY: '',
+      SBT_CONTRACT_ADDRESS: '',
+      POLICY_ADMIN_KEY: 'test-policy-admin-key'
+    },
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+
+  const result = await waitForExit(child);
+  assert.equal(result.code, 1);
+  assert.match(result.stdout, /Durable governance storage/);
+  assert.match(result.stdout, /REQUIRE_DURABLE_GOVERNANCE=1 but DATABASE_URL \/ PG_CONNECTION_STRING is not configured/);
+  assert.match(result.stderr, /STARTUP_STRICT=1 and one or more startup checks failed/);
+});

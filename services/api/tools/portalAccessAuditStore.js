@@ -6,6 +6,7 @@ const DATA_DIR = path.join(__dirname, '..', '..', 'data');
 const AUDIT_FILE = path.join(DATA_DIR, 'portal-access-audit.json');
 
 const pgPool = require('./pgPool');
+const { handleGovernanceFallback } = require('./governanceMode');
 
 async function readAuditEvents() {
   if (pgPool) {
@@ -15,7 +16,7 @@ async function readAuditEvents() {
       );
       return res.rows || [];
     } catch (e) {
-      console.warn('Portal access audit read failed; falling back to file DB:', e.message || e);
+      handleGovernanceFallback('Portal access audit read failed', e);
     }
   }
   try {
@@ -54,7 +55,7 @@ async function appendAuditEvent(event) {
       );
       return event;
     } catch (e) {
-      console.warn('Portal access audit pg insert failed; falling back to file DB:', e.message || e);
+      handleGovernanceFallback('Portal access audit pg insert failed', e);
     }
   }
   const all = await readAuditEvents();

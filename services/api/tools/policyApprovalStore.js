@@ -5,6 +5,7 @@ const DATA_DIR = path.join(__dirname, '..', '..', 'data');
 const POLICY_APPROVAL_FILE = path.join(DATA_DIR, 'portal-policy-approvals.json');
 
 const pgPool = require('./pgPool');
+const { handleGovernanceFallback } = require('./governanceMode');
 
 function rowToProposal(row) {
   return {
@@ -29,7 +30,7 @@ async function readPolicyApprovals() {
       const res = await pgPool.query('SELECT * FROM portal_policy_approvals ORDER BY at ASC');
       return (res.rows || []).map(rowToProposal);
     } catch (e) {
-      console.warn('Policy approval read failed; falling back to file DB:', e.message || e);
+      handleGovernanceFallback('Policy approval read failed', e);
     }
   }
   try {
@@ -61,7 +62,7 @@ async function appendPolicyApproval(item) {
       );
       return item;
     } catch (e) {
-      console.warn('Policy approval pg insert failed; falling back to file DB:', e.message || e);
+      handleGovernanceFallback('Policy approval pg insert failed', e);
     }
   }
   const all = await readPolicyApprovals();
@@ -76,7 +77,7 @@ async function findPolicyApprovalById(id) {
       const res = await pgPool.query('SELECT * FROM portal_policy_approvals WHERE proposal_id=$1 LIMIT 1', [id]);
       return (res.rows && res.rows[0]) ? rowToProposal(res.rows[0]) : null;
     } catch (e) {
-      console.warn('Policy approval find failed; falling back to file DB:', e.message || e);
+      handleGovernanceFallback('Policy approval find failed', e);
     }
   }
   const all = await readPolicyApprovals();
@@ -97,7 +98,7 @@ async function updatePolicyApproval(id, updater) {
       );
       return next;
     } catch (e) {
-      console.warn('Policy approval pg update failed; falling back to file DB:', e.message || e);
+      handleGovernanceFallback('Policy approval pg update failed', e);
     }
   }
   const all = await readPolicyApprovals();

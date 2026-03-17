@@ -102,7 +102,11 @@ $env:DEPLOY_GAS_STRATEGY='provider'; npm run deploy:sbt
 - `LIFEPASS_SSO_JWT_EXPIRES_IN` (default `15m`)
 - `LIFEPASS_PORTAL_POLICY_JSON` for covenant policy overrides (e.g. route trust thresholds)
 - `PORTAL_ACCESS_AUDIT_MAX_ROWS` for portal decision log retention
-- `POLICY_ADMIN_KEY` for secured policy-matrix updates and admin-audit endpoints
+- `POLICY_ADMIN_KEY` for legacy single-secret policy admin access
+- `POLICY_ADMIN_KEYS_JSON` for rotated policy admin keys (key-id to secret map)
+- `POLICY_ADMIN_ALLOWED_ACTORS` comma-separated allowlist for key-auth actors and admin JWT identities
+- `POLICY_ADMIN_JWT_SECRET` to enable bearer-token policy admin access
+- `POLICY_ADMIN_JWT_ISSUER`, `POLICY_ADMIN_JWT_AUDIENCE`, `POLICY_ADMIN_REQUIRED_ROLE` to constrain admin JWT validation
 - `POLICY_ADMIN_AUDIT_MAX_ROWS` for policy admin audit retention
 - `POLICY_SNAPSHOT_MAX_ROWS` for retained policy snapshots
 - `PORTAL_DENY_ALERT_THRESHOLD` default deny-alert threshold (overridable via query)
@@ -111,11 +115,31 @@ $env:DEPLOY_GAS_STRATEGY='provider'; npm run deploy:sbt
 - `POLICY_REQUIRED_APPROVALS` approval threshold (minimum 2)
 - `POLICY_APPROVAL_SIGNING_KEYS_JSON` JSON map of approver IDs to shared HMAC secrets
 - `POLICY_APPROVAL_MAX_ROWS` for proposal retention
+- `REQUIRE_DURABLE_GOVERNANCE=1` to require Postgres-backed admin/audit persistence and disable file fallback for governance stores
+
+### Two-Person Approval Signing
+
+Do not place approval shared secrets in the browser admin UI. Generate signatures offline instead:
+
+```powershell
+cd services/api
+npm run sign:approval -- --proposal-id <proposal-id> --action <proposal-action> --payload-hash <payload-hash> --secret <approver-shared-secret>
+```
+
+The signing message format is:
+
+```text
+<proposalId>:<action>:<payloadHash>
+```
+
+Use `--json true` if you want the helper to print the full message and signature payload.
 
 ### Health & Startup Checklist
 - `GET /health` returns startup/env readiness checks.
 - On process start, checklist status is logged.
 - With `STARTUP_STRICT=1`, startup exits if any critical check fails.
+- `GET /portals/policy-admin/audit/export` returns a tamper-evident hash-chain export of policy admin events.
+- `GET /portals/access-audit/export` returns a tamper-evident hash-chain export of portal access decisions.
 
 ## Deploy API On Render / Railway
 

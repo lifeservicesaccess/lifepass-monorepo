@@ -1,6 +1,8 @@
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
+const { readBinFile } = require('@iden3/binfileutils');
+const { readR1csHeader } = require('r1csfile');
 
 function fail(message, detail) {
   console.error(`SNARK build failed: ${message}`);
@@ -131,6 +133,46 @@ function toPosixRelative(fromDir, targetPath) {
   return rel.split(path.sep).join('/');
 }
 
+async function readCompiledR1csHeader(r1csPath) {
+  const { fd, sections } = await readBinFile(r1csPath, 'r1cs', 1, 1 << 22, 1 << 24);
+  try {
+    return await readR1csHeader(fd, sections, false);
+  } finally {
+    await fd.close();
+  }
+}
+
+function computeMinimumPtauPower(r1csHeader) {
+  const requiredDomainSize = r1csHeader.nConstraints + r1csHeader.nPubInputs + r1csHeader.nOutputs + 1;
+  let power = 0;
+  let domainSize = 1;
+
+  while (domainSize < requiredDomainSize) {
+    domainSize *= 2;
+    power += 1;
+  }
+
+  // Keep a small floor so local builds remain stable even for trivial circuits.
+  return Math.max(4, power);
+}
+
+function resolvePtauPower(minimumPtauPower) {
+  const overrideRaw = process.env.SNARK_PTAU_POWER;
+  if (!overrideRaw || String(overrideRaw).trim() === '') {
+    return minimumPtauPower;
+  }
+
+  const parsed = Number.parseInt(String(overrideRaw).trim(), 10);
+  if (!Number.isInteger(parsed) || parsed < minimumPtauPower) {
+    fail(
+      `SNARK_PTAU_POWER must be an integer >= ${minimumPtauPower}`,
+      `Received: ${overrideRaw}`
+    );
+  }
+
+  return parsed;
+}
+
 async function runCircomCompileDirect({ repoRoot, circuitPath, includePath, outputDir }) {
   let circom2;
   try {
@@ -242,6 +284,11 @@ async function main() {
   const zkDir = path.join(repoRoot, 'zk');
   const buildDir = path.join(zkDir, 'build');
   const circuitPath = path.join(zkDir, 'over18.circom');
+  const ptauPaths = {
+    initial: path.join(buildDir, 'ptau_0000.ptau'),
+    contributed: path.join(buildDir, 'ptau_0001.ptau'),
+    final: path.join(buildDir, 'ptau_final.ptau'),
+  };
 
   const circomCmd =
     resolveNodeCli(apiDir, 'circom2', 'cli.js', 'local-node:circom2/cli.js')
@@ -280,9 +327,9 @@ async function main() {
     path.join(zkDir, 'over18.zkey'),
     path.join(zkDir, 'over18.vkey'),
     path.join(zkDir, 'over18_js'),
-    path.join(buildDir, 'pot14_0000.ptau'),
-    path.join(buildDir, 'pot14_0001.ptau'),
-    path.join(buildDir, 'pot14_final.ptau'),
+    ptauPaths.initial,
+    ptauPaths.contributed,
+    ptauPaths.final,
   ];
 
   generatedTargets.forEach(removeIfExists);
@@ -326,61 +373,74 @@ async function main() {
   }
   assertFileExists(canonicalWasmPath, 'Canonical WASM');
 
+  const r1csHeader = await readCompiledR1csHeader(path.join(zkDir, 'over18.r1cs'));
+  const minimumPtauPower = computeMinimumPtauPower(r1csHeader);
+  const ptauPower = resolvePtauPower(minimumPtauPower);
+
+  console.log(
+    `Using PTAU power ${ptauPower} (minimum required ${minimumPtauPower}) for ${r1csHeader.nConstraints} constraints.`
+  );
+
   const bn128 = await snarkjs.curves.getCurveFromName('bn128');
+  try {
+    await runSnarkjsDirect('Create initial PTAU', async () => {
+      await snarkjs.powersOfTau.newAccumulator(
+        bn128,
+        ptauPower,
+        ptauPaths.initial,
+        console
+      );
+    });
 
-  await runSnarkjsDirect('Create initial PTAU', async () => {
-    await snarkjs.powersOfTau.newAccumulator(
-      bn128,
-      14,
-      path.join(buildDir, 'pot14_0000.ptau'),
-      console
-    );
-  });
+    await runSnarkjsDirect('Contribute deterministic PTAU', async () => {
+      await snarkjs.powersOfTau.contribute(
+        ptauPaths.initial,
+        ptauPaths.contributed,
+        'lifepass-local',
+        'lifepass-deterministic-ptau-seed-v1',
+        console
+      );
+    });
 
-  await runSnarkjsDirect('Contribute deterministic PTAU', async () => {
-    await snarkjs.powersOfTau.contribute(
-      path.join(buildDir, 'pot14_0000.ptau'),
-      path.join(buildDir, 'pot14_0001.ptau'),
-      'lifepass-local',
-      'lifepass-deterministic-ptau-seed-v1',
-      console
-    );
-  });
+    await runSnarkjsDirect('Prepare PTAU phase2', async () => {
+      await snarkjs.powersOfTau.preparePhase2(
+        ptauPaths.contributed,
+        ptauPaths.final,
+        console
+      );
+    });
 
-  await runSnarkjsDirect('Prepare PTAU phase2', async () => {
-    await snarkjs.powersOfTau.preparePhase2(
-      path.join(buildDir, 'pot14_0001.ptau'),
-      path.join(buildDir, 'pot14_final.ptau'),
-      console
-    );
-  });
+    await runSnarkjsDirect('Groth16 setup', async () => {
+      await snarkjs.zKey.newZKey(
+        path.join(zkDir, 'over18.r1cs'),
+        ptauPaths.final,
+        path.join(zkDir, 'over18_0000.zkey'),
+        console
+      );
+    });
 
-  await runSnarkjsDirect('Groth16 setup', async () => {
-    await snarkjs.zKey.newZKey(
-      path.join(zkDir, 'over18.r1cs'),
-      path.join(buildDir, 'pot14_final.ptau'),
-      path.join(zkDir, 'over18_0000.zkey'),
-      console
-    );
-  });
+    await runSnarkjsDirect('Contribute deterministic zkey', async () => {
+      await snarkjs.zKey.contribute(
+        path.join(zkDir, 'over18_0000.zkey'),
+        path.join(zkDir, 'over18.zkey'),
+        'lifepass-zkey',
+        'lifepass-deterministic-zkey-seed-v1',
+        console
+      );
+    });
 
-  await runSnarkjsDirect('Contribute deterministic zkey', async () => {
-    await snarkjs.zKey.contribute(
-      path.join(zkDir, 'over18_0000.zkey'),
-      path.join(zkDir, 'over18.zkey'),
-      'lifepass-zkey',
-      'lifepass-deterministic-zkey-seed-v1',
-      console
-    );
-  });
-
-  await runSnarkjsDirect('Export verification key', async () => {
-    const verificationKey = await snarkjs.zKey.exportVerificationKey(
-      path.join(zkDir, 'over18.zkey'),
-      console
-    );
-    fs.writeFileSync(path.join(zkDir, 'over18.vkey'), `${JSON.stringify(verificationKey, null, 2)}\n`);
-  });
+    await runSnarkjsDirect('Export verification key', async () => {
+      const verificationKey = await snarkjs.zKey.exportVerificationKey(
+        path.join(zkDir, 'over18.zkey'),
+        console
+      );
+      fs.writeFileSync(path.join(zkDir, 'over18.vkey'), `${JSON.stringify(verificationKey, null, 2)}\n`);
+    });
+  } finally {
+    if (bn128 && typeof bn128.terminate === 'function') {
+      await bn128.terminate();
+    }
+  }
 
   assertFileExists(path.join(zkDir, 'over18.zkey'), 'Final zkey');
   assertFileExists(path.join(zkDir, 'over18.vkey'), 'Verification key');

@@ -5,6 +5,7 @@ const DATA_DIR = path.join(__dirname, '..', '..', 'data');
 const POLICY_SNAPSHOT_FILE = path.join(DATA_DIR, 'portal-policy-snapshots.json');
 
 const pgPool = require('./pgPool');
+const { handleGovernanceFallback } = require('./governanceMode');
 
 async function readPolicySnapshots() {
   if (pgPool) {
@@ -12,7 +13,7 @@ async function readPolicySnapshots() {
       const res = await pgPool.query('SELECT snapshot_id AS id,at,actor,reason,replace,overrides,changes FROM portal_policy_snapshots ORDER BY at ASC');
       return res.rows || [];
     } catch (e) {
-      console.warn('Policy snapshot read failed; falling back to file DB:', e.message || e);
+      handleGovernanceFallback('Policy snapshot read failed', e);
     }
   }
   try {
@@ -33,7 +34,7 @@ async function appendPolicySnapshot(snapshot) {
       );
       return snapshot;
     } catch (e) {
-      console.warn('Policy snapshot pg insert failed; falling back to file DB:', e.message || e);
+      handleGovernanceFallback('Policy snapshot pg insert failed', e);
     }
   }
   const all = await readPolicySnapshots();
@@ -51,7 +52,7 @@ async function findPolicySnapshot(snapshotId) {
       const res = await pgPool.query('SELECT snapshot_id AS id,at,actor,reason,replace,overrides,changes FROM portal_policy_snapshots WHERE snapshot_id=$1 LIMIT 1', [snapshotId]);
       return (res.rows && res.rows[0]) || null;
     } catch (e) {
-      console.warn('Policy snapshot find failed; falling back to file DB:', e.message || e);
+      handleGovernanceFallback('Policy snapshot find failed', e);
     }
   }
   const all = await readPolicySnapshots();

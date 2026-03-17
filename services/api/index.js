@@ -1,5 +1,6 @@
 const express = require('express');
 const crypto = require('crypto');
+const jwt = require('jsonwebtoken');
 const { ethers } = require('ethers');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
@@ -25,6 +26,8 @@ const chatGuide = require('./tools/chatGuide');
 const milestoneStore = require('./tools/milestoneStore');
 const { createPortalRouter } = require('./portals/router');
 const { loadApiEnv } = require('./tools/loadEnv');
+const pgPool = require('./tools/pgPool');
+const { isDurableGovernanceRequired } = require('./tools/governanceMode');
 
 loadApiEnv();
 
@@ -115,6 +118,7 @@ function startupChecklist() {
   const requireAgeVerifier = process.env.REQUIRE_AGE_VERIFIER === '1' || isProd;
   const useSnarkJs = process.env.USE_SNARKJS === '1';
   const policyPreconditions = getPolicyExecutionPreconditions();
+  const policyAdminAccess = getPolicyAdminAccessPreconditions();
   const blockchainReady = hasRpc && hasPk && hasSbtAddress;
   const anchorReady = hasRpc && hasPk && hasTrustRegistryAddress;
   const hasCorsAllowlist = CORS_ALLOW_ALL || CORS_ALLOWED_ORIGINS.length > 0;
@@ -182,6 +186,24 @@ function startupChecklist() {
       check: 'LIFEPASS_SSO_JWT_SECRET configured',
       status: ssoAuth.getSsoConfig().configured ? 'pass' : 'warn',
       detail: ssoAuth.getSsoConfig().configured ? 'SSO token endpoints enabled' : 'not set; /auth/sso/token and /auth/sso/verify return 503'
+    },
+    {
+      check: 'Policy admin auth mode',
+      status: policyAdminAccess.configured ? 'pass' : 'fail',
+      detail: policyAdminAccess.detail
+    },
+    {
+      check: 'Durable governance storage',
+      status: isDurableGovernanceRequired()
+        ? (pgPool ? 'pass' : 'fail')
+        : (pgPool ? 'pass' : 'warn'),
+      detail: isDurableGovernanceRequired()
+        ? (pgPool
+            ? 'REQUIRE_DURABLE_GOVERNANCE=1 and Postgres is configured for audit/admin persistence'
+            : 'REQUIRE_DURABLE_GOVERNANCE=1 but DATABASE_URL / PG_CONNECTION_STRING is not configured')
+        : (pgPool
+            ? 'Postgres configured for audit/admin persistence'
+            : 'file fallback remains enabled for audit/admin stores')
     },
     {
       check: 'POLICY_TWO_PERSON_REQUIRED readiness',
@@ -411,6 +433,148 @@ function parsePolicyApprovalKeyMap() {
   } catch (_err) {
     return {};
   }
+}
+
+function parsePolicyAdminKeyMap() {
+  const out = {};
+  const legacy = String(process.env.POLICY_ADMIN_KEY || '').trim();
+  if (legacy) {
+    out.legacy = legacy;
+  }
+
+  const raw = process.env.POLICY_ADMIN_KEYS_JSON || '';
+  if (!raw.trim()) return out;
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return out;
+    for (const [id, secret] of Object.entries(parsed)) {
+      const keyId = String(id || '').trim();
+      const value = String(secret || '').trim();
+      if (!keyId || !value) continue;
+      out[keyId] = value;
+    }
+  } catch (_err) {
+    return out;
+  }
+
+  return out;
+}
+
+function parsePolicyAdminActorAllowlist() {
+  return String(process.env.POLICY_ADMIN_ALLOWED_ACTORS || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function getPolicyAdminJwtConfig() {
+  return {
+    secret: String(process.env.POLICY_ADMIN_JWT_SECRET || '').trim(),
+    issuer: String(process.env.POLICY_ADMIN_JWT_ISSUER || '').trim(),
+    audience: String(process.env.POLICY_ADMIN_JWT_AUDIENCE || '').trim(),
+    requiredRole: String(process.env.POLICY_ADMIN_REQUIRED_ROLE || 'policy_admin').trim() || 'policy_admin'
+  };
+}
+
+function normalizeClaimList(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item).trim()).filter(Boolean);
+  }
+  if (typeof value === 'string') {
+    return value.split(/[\s,]+/).map((item) => item.trim()).filter(Boolean);
+  }
+  return [];
+}
+
+function hasRequiredPolicyAdminRole(claims, requiredRole) {
+  const candidates = [
+    ...normalizeClaimList(claims && claims.role),
+    ...normalizeClaimList(claims && claims.roles),
+    ...normalizeClaimList(claims && claims.permissions),
+    ...normalizeClaimList(claims && claims.scope),
+    ...normalizeClaimList(claims && claims.scopes)
+  ];
+  const set = new Set(candidates.map((item) => item.toLowerCase()));
+  const target = String(requiredRole || 'policy_admin').toLowerCase();
+  return set.has(target) || set.has('policy:admin') || set.has('admin');
+}
+
+function resolvePolicyAdminActorFromClaims(claims) {
+  const candidate = claims && (
+    claims.email
+    || claims.preferred_username
+    || claims.sub
+    || claims.lifePassId
+    || claims.actor
+  );
+  const actor = String(candidate || '').trim();
+  return actor || null;
+}
+
+function timingSafeMatch(value, expected) {
+  const a = Buffer.from(String(value || ''), 'utf8');
+  const b = Buffer.from(String(expected || ''), 'utf8');
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
+
+function isAllowedPolicyAdminActor(actor) {
+  const allowlist = parsePolicyAdminActorAllowlist();
+  if (allowlist.length === 0) return true;
+  return allowlist.includes(String(actor || '').trim());
+}
+
+function getPolicyAdminAccessPreconditions() {
+  const keyMap = parsePolicyAdminKeyMap();
+  const jwtConfig = getPolicyAdminJwtConfig();
+  const allowlist = parsePolicyAdminActorAllowlist();
+  const keyCount = Object.keys(keyMap).length;
+  const hasJwt = Boolean(jwtConfig.secret);
+  return {
+    configured: hasJwt || keyCount > 0,
+    detail: hasJwt
+      ? `JWT admin auth enabled${allowlist.length ? ` with ${allowlist.length} allowed actor(s)` : ''}`
+      : (keyCount > 0
+          ? `${keyCount} policy admin key(s) configured${allowlist.length ? ` with ${allowlist.length} allowed actor(s)` : ''}`
+          : 'configure POLICY_ADMIN_KEY / POLICY_ADMIN_KEYS_JSON or POLICY_ADMIN_JWT_SECRET'),
+    keyCount,
+    hasJwt,
+    allowlistCount: allowlist.length
+  };
+}
+
+function resolvePolicyAdminActor(req) {
+  return (req.policyAdmin && req.policyAdmin.actor) || 'unknown';
+}
+
+function buildAuditChainExport(scope, events) {
+  let previousHash = sha256Hex(`${scope}:genesis`);
+  const entries = (events || []).map((event, index) => {
+    const canonical = stableStringify(event);
+    const hash = sha256Hex(`${scope}:${index}:${previousHash}:${canonical}`);
+    const item = {
+      index,
+      previousHash,
+      hash,
+      event
+    };
+    previousHash = hash;
+    return item;
+  });
+
+  return {
+    scope,
+    exportedAt: new Date().toISOString(),
+    algorithm: 'sha256',
+    count: entries.length,
+    rootHash: previousHash,
+    entries
+  };
+}
+
+function toNdjson(lines) {
+  return lines.map((line) => JSON.stringify(line)).join('\n');
 }
 
 function isTwoPersonPolicyEnabled() {
@@ -856,15 +1020,71 @@ function requireSsoConfigured(req, res, next) {
   return next();
 }
 
-function requirePolicyAdminKey(req, res, next) {
-  const expected = process.env.POLICY_ADMIN_KEY;
-  if (!expected) {
-    return res.status(503).json({ success: false, error: 'POLICY_ADMIN_KEY is not configured' });
+function requirePolicyAdminAccess(req, res, next) {
+  const jwtConfig = getPolicyAdminJwtConfig();
+  const authHeader = req.header('authorization') || '';
+  const parts = authHeader.split(' ');
+
+  if (jwtConfig.secret && parts.length === 2 && /^Bearer$/i.test(parts[0]) && parts[1]) {
+    try {
+      const verifyOptions = {};
+      if (jwtConfig.issuer) verifyOptions.issuer = jwtConfig.issuer;
+      if (jwtConfig.audience) verifyOptions.audience = jwtConfig.audience;
+      const claims = jwt.verify(parts[1], jwtConfig.secret, verifyOptions);
+      if (!hasRequiredPolicyAdminRole(claims, jwtConfig.requiredRole)) {
+        return res.status(403).json({ success: false, error: 'Forbidden: policy admin role is required' });
+      }
+      const actor = resolvePolicyAdminActorFromClaims(claims);
+      if (!actor) {
+        return res.status(403).json({ success: false, error: 'Forbidden: admin token is missing an actor identity' });
+      }
+      if (!isAllowedPolicyAdminActor(actor)) {
+        return res.status(403).json({ success: false, error: 'Forbidden: admin actor is not allowlisted' });
+      }
+      req.policyAdmin = { mode: 'jwt', actor, claims };
+      return next();
+    } catch (_err) {
+      return res.status(401).json({ success: false, error: 'Unauthorized: invalid admin bearer token' });
+    }
   }
+
+  const keyMap = parsePolicyAdminKeyMap();
+  const configuredKeyIds = Object.keys(keyMap);
+  if (configuredKeyIds.length === 0 && !jwtConfig.secret) {
+    return res.status(503).json({ success: false, error: 'Policy admin auth is not configured' });
+  }
+
   const provided = req.header('x-policy-admin-key');
-  if (!provided || provided !== expected) {
-    return res.status(403).json({ success: false, error: 'Forbidden: invalid policy admin key' });
+  if (!provided) {
+    return res.status(403).json({ success: false, error: 'Forbidden: invalid policy admin credentials' });
   }
+
+  const requestedKeyId = String(req.header('x-policy-admin-key-id') || '').trim();
+  let matchedKeyId = null;
+
+  if (requestedKeyId) {
+    if (keyMap[requestedKeyId] && timingSafeMatch(provided, keyMap[requestedKeyId])) {
+      matchedKeyId = requestedKeyId;
+    }
+  } else {
+    const matches = configuredKeyIds.filter((keyId) => timingSafeMatch(provided, keyMap[keyId]));
+    if (matches.length === 1) {
+      matchedKeyId = matches[0];
+    } else if (matches.length > 1) {
+      matchedKeyId = matches[0];
+    }
+  }
+
+  if (!matchedKeyId) {
+    return res.status(403).json({ success: false, error: 'Forbidden: invalid policy admin credentials' });
+  }
+
+  const actor = String(req.header('x-admin-actor') || '').trim() || `key:${matchedKeyId}`;
+  if (!isAllowedPolicyAdminActor(actor)) {
+    return res.status(403).json({ success: false, error: 'Forbidden: admin actor is not allowlisted' });
+  }
+
+  req.policyAdmin = { mode: 'key', actor, keyId: matchedKeyId };
   return next();
 }
 
@@ -1605,7 +1825,7 @@ app.get('/portals/policy-matrix', requireApiKey, (_req, res) => {
 
 app.post('/portals/policy-matrix',
   requireApiKey,
-  requirePolicyAdminKey,
+  requirePolicyAdminAccess,
   body('matrix').isObject(),
   body('replace').optional().isBoolean(),
   body('reason').optional().isString(),
@@ -1614,7 +1834,7 @@ app.post('/portals/policy-matrix',
     if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
 
     try {
-      const actor = req.header('x-admin-actor') || 'unknown';
+      const actor = resolvePolicyAdminActor(req);
       const reason = (req.body.reason || '').trim();
       const replace = Boolean(req.body.replace);
 
@@ -1667,7 +1887,7 @@ app.post('/portals/policy-matrix',
 
 app.post('/portals/policy-matrix/preview',
   requireApiKey,
-  requirePolicyAdminKey,
+  requirePolicyAdminAccess,
   body('matrix').isObject(),
   body('replace').optional().isBoolean(),
   async (req, res) => {
@@ -1707,7 +1927,7 @@ app.post('/portals/policy-matrix/preview',
   }
 );
 
-app.get('/portals/policy-snapshots', requireApiKey, requirePolicyAdminKey, async (req, res) => {
+app.get('/portals/policy-snapshots', requireApiKey, requirePolicyAdminAccess, async (req, res) => {
   try {
     const limitRaw = Number(req.query.limit || 50);
     const limit = Math.max(1, Math.min(500, Number.isFinite(limitRaw) ? limitRaw : 50));
@@ -1722,7 +1942,7 @@ app.get('/portals/policy-snapshots', requireApiKey, requirePolicyAdminKey, async
 
 app.post('/portals/policy-snapshots/:snapshotId/restore',
   requireApiKey,
-  requirePolicyAdminKey,
+  requirePolicyAdminAccess,
   body('reason').optional().isString(),
   async (req, res) => {
     const errors = validationResult(req);
@@ -1730,7 +1950,7 @@ app.post('/portals/policy-snapshots/:snapshotId/restore',
 
     try {
       const snapshotId = req.params.snapshotId;
-      const actor = req.header('x-admin-actor') || 'unknown';
+      const actor = resolvePolicyAdminActor(req);
       const reason = (req.body.reason || '').trim();
 
       if (isTwoPersonPolicyEnabled()) {
@@ -1774,7 +1994,7 @@ app.post('/portals/policy-snapshots/:snapshotId/restore',
   }
 );
 
-app.get('/portals/policy-approvals', requireApiKey, requirePolicyAdminKey, async (req, res) => {
+app.get('/portals/policy-approvals', requireApiKey, requirePolicyAdminAccess, async (req, res) => {
   try {
     const limitRaw = Number(req.query.limit || 50);
     const limit = Math.max(1, Math.min(500, Number.isFinite(limitRaw) ? limitRaw : 50));
@@ -1792,7 +2012,7 @@ app.get('/portals/policy-approvals', requireApiKey, requirePolicyAdminKey, async
   }
 });
 
-app.get('/portals/policy-approvals/:proposalId', requireApiKey, requirePolicyAdminKey, async (req, res) => {
+app.get('/portals/policy-approvals/:proposalId', requireApiKey, requirePolicyAdminAccess, async (req, res) => {
   try {
     const proposal = await policyApprovalStore.findPolicyApprovalById(req.params.proposalId);
     if (!proposal) return res.status(404).json({ success: false, error: 'Proposal not found' });
@@ -1805,7 +2025,7 @@ app.get('/portals/policy-approvals/:proposalId', requireApiKey, requirePolicyAdm
 
 app.post('/portals/policy-approvals/:proposalId/approve',
   requireApiKey,
-  requirePolicyAdminKey,
+  requirePolicyAdminAccess,
   body('approverId').isString().notEmpty(),
   body('signature').isString().notEmpty(),
   body('note').optional().isString(),
@@ -1918,7 +2138,7 @@ app.post('/portals/policy-approvals/:proposalId/approve',
   }
 );
 
-app.get('/portals/policy-admin/audit', requireApiKey, requirePolicyAdminKey, async (req, res) => {
+app.get('/portals/policy-admin/audit', requireApiKey, requirePolicyAdminAccess, async (req, res) => {
   try {
     const limitRaw = Number(req.query.limit || 50);
     const limit = Math.max(1, Math.min(500, Number.isFinite(limitRaw) ? limitRaw : 50));
@@ -1931,7 +2151,25 @@ app.get('/portals/policy-admin/audit', requireApiKey, requirePolicyAdminKey, asy
   }
 });
 
-app.get('/portals/access-audit/alerts', requireApiKey, requirePolicyAdminKey, async (req, res) => {
+app.get('/portals/policy-admin/audit/export', requireApiKey, requirePolicyAdminAccess, async (req, res) => {
+  try {
+    const format = String(req.query.format || 'json').toLowerCase();
+    const events = await policyAdminAuditStore.readPolicyAdminAuditEvents();
+    const exported = buildAuditChainExport('policy-admin-audit', events);
+
+    if (format === 'ndjson') {
+      res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+      return res.status(200).send(toNdjson(exported.entries));
+    }
+
+    return res.json({ success: true, export: exported });
+  } catch (err) {
+    console.error('portals/policy-admin/audit/export error', err);
+    return res.status(500).json({ success: false, error: 'Failed to export policy admin audit events' });
+  }
+});
+
+app.get('/portals/access-audit/alerts', requireApiKey, requirePolicyAdminAccess, async (req, res) => {
   try {
     const thresholdRaw = Number(req.query.threshold || process.env.PORTAL_DENY_ALERT_THRESHOLD || 10);
     const windowRaw = Number(req.query.windowMinutes || process.env.PORTAL_DENY_ALERT_WINDOW_MINUTES || 60);
@@ -1950,6 +2188,17 @@ app.get('/portals/access-audit/alerts', requireApiKey, requirePolicyAdminKey, as
   } catch (err) {
     console.error('portals/access-audit/alerts error', err);
     return res.status(500).json({ success: false, error: 'Failed to generate access audit alerts' });
+  }
+});
+
+app.get('/portals/access-audit/export', requireApiKey, requirePolicyAdminAccess, async (req, res) => {
+  try {
+    const events = await portalAccessAuditStore.readAuditEvents();
+    const exported = buildAuditChainExport('portal-access-audit', events);
+    return res.json({ success: true, export: exported });
+  } catch (err) {
+    console.error('portals/access-audit/export error', err);
+    return res.status(500).json({ success: false, error: 'Failed to export access audit events' });
   }
 });
 

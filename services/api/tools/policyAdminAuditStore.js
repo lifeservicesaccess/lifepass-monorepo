@@ -6,6 +6,7 @@ const DATA_DIR = path.join(__dirname, '..', '..', 'data');
 const POLICY_ADMIN_AUDIT_FILE = path.join(DATA_DIR, 'portal-policy-admin-audit.json');
 
 const pgPool = require('./pgPool');
+const { handleGovernanceFallback } = require('./governanceMode');
 
 async function readPolicyAdminAuditEvents() {
   if (pgPool) {
@@ -13,7 +14,7 @@ async function readPolicyAdminAuditEvents() {
       const res = await pgPool.query('SELECT event_id,at,actor,action,payload FROM portal_policy_admin_audit ORDER BY at ASC');
       return (res.rows || []).map((r) => ({ ...r.payload, at: r.at, actor: r.actor, action: r.action }));
     } catch (e) {
-      console.warn('Policy admin audit read failed; falling back to file DB:', e.message || e);
+      handleGovernanceFallback('Policy admin audit read failed', e);
     }
   }
   try {
@@ -35,7 +36,7 @@ async function appendPolicyAdminAuditEvent(event) {
       );
       return event;
     } catch (e) {
-      console.warn('Policy admin audit pg insert failed; falling back to file DB:', e.message || e);
+      handleGovernanceFallback('Policy admin audit pg insert failed', e);
     }
   }
   const all = await readPolicyAdminAuditEvents();

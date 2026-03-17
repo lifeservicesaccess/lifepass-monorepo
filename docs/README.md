@@ -27,5 +27,6 @@ mkdocs serve
 - `render-log-playbook.md` — Short mapping of common Render log signatures and request failures to likely fixes for LifePass.
 - `render-oncall-checklist.md` — One-page incident checklist with exact Render dashboard actions for LifePass outages and deploy failures.
 - `lifepass-portal-blueprint.md` — Product blueprint for the LifePass portal, including core layers, user journey, launch strategy, MVP stack, and monorepo milestone mapping.
+- `governance-operations-runbook.md` — Operator guide for rotated admin keys, JWT admin access, two-person approval handling, offline HMAC signing, and durable-governance rollout.
 
 Each of these files is currently a placeholder and should be expanded by the appropriate specialist GPTs or human collaborators as development progresses.

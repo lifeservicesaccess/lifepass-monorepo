@@ -26,6 +26,7 @@ services/api/.smoke.exit.txt
 services/api/.smoke.out.txt
 services/api/.snark-exit.txt
 services/api/.snark-build.log
+services/api/build-snark.exit.txt
 zk/snark_status.txt
 
 # Generated SNARK artifacts
