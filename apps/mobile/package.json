@@ -2,8 +2,22 @@
   "name": "lifepass-mobile",
   "version": "0.1.0",
   "private": true,
+  "main": "index.js",
+  "scripts": {
+    "android": "react-native run-android",
+    "android:bootstrap": "powershell -ExecutionPolicy Bypass -File .\\scripts\\bootstrap-android-env.ps1 -Persist",
+    "ios": "react-native run-ios",
+    "start": "react-native start",
+    "bundle:android": "node -e \"require('fs').mkdirSync('dist', { recursive: true })\" && react-native bundle --platform android --dev false --entry-file index.js --bundle-output dist/index.android.bundle --assets-dest dist",
+    "bundle:ios": "node -e \"require('fs').mkdirSync('dist', { recursive: true })\" && react-native bundle --platform ios --dev false --entry-file index.js --bundle-output dist/index.ios.bundle --assets-dest dist",
+    "doctor": "react-native doctor"
+  },
   "dependencies": {
     "react": "18.2.0",
     "react-native": "0.73.0"
+  },
+  "devDependencies": {
+    "@react-native/babel-preset": "0.73.21",
+    "@react-native/metro-config": "0.73.2"
   }
 }

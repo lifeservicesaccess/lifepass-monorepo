@@ -7,6 +7,7 @@
     "test": "node --test --test-concurrency=1 tests/*.test.js",
     "db:migrate": "node scripts/run_migrations.js",
     "check:schema": "node scripts/check_schema.js",
+    "check:governance-db": "node scripts/check_governance_schema.js",
     "sign:approval": "node scripts/sign_policy_approval.js",
     "validate:snark": "node scripts/validate_snark_artifacts.js",
     "build:snark": "node scripts/build_snark_artifacts.js",

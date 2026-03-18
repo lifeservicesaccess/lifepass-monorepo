@@ -88,6 +88,18 @@ function Get-FindingsForCheck {
         Add-Finding $findings 'warning' $check 'SSO token issue and verify endpoints will not work.' 'Render dashboard -> lifepass-api -> Environment -> set LIFEPASS_SSO_JWT_SECRET and redeploy.' @('LIFEPASS_SSO_JWT_SECRET')
       }
     }
+    'Policy admin auth mode' {
+      if ($status -ne 'pass') {
+        Add-Finding $findings 'critical' $check 'Governance endpoints are not safely reachable with the expected admin auth mode.' 'Render dashboard -> lifepass-api -> Environment -> configure rotated keys or admin JWT settings and redeploy.' @('POLICY_ADMIN_KEY', 'POLICY_ADMIN_KEYS_JSON', 'POLICY_ADMIN_JWT_SECRET', 'POLICY_ADMIN_ALLOWED_ACTORS')
+      }
+    }
+    'Durable governance storage' {
+      if ($status -eq 'fail') {
+        Add-Finding $findings 'critical' $check 'Production governance durability is not active, so audit/admin persistence is not safely backed by Postgres.' 'Render dashboard -> lifepass-api -> confirm DATABASE_URL wiring, run npm run db:migrate, redeploy, and verify this check becomes PASS.' @('DATABASE_URL', 'PG_CONNECTION_STRING', 'REQUIRE_DURABLE_GOVERNANCE', 'ALLOW_INSECURE_FILE_GOVERNANCE')
+      } elseif ($status -eq 'warn') {
+        Add-Finding $findings 'warning' $check 'Governance stores can still fall back to file-backed persistence.' 'If this is production, remove ALLOW_INSECURE_FILE_GOVERNANCE and enable durable governance with Postgres-backed storage.' @('DATABASE_URL', 'PG_CONNECTION_STRING', 'REQUIRE_DURABLE_GOVERNANCE', 'ALLOW_INSECURE_FILE_GOVERNANCE')
+      }
+    }
     'POLICY_TWO_PERSON_REQUIRED readiness' {
       if ($status -eq 'fail') {
         Add-Finding $findings 'warning' $check 'Policy changes are blocked because the approval configuration is incomplete.' 'Render dashboard -> lifepass-api -> Environment -> set POLICY_APPROVAL_SIGNING_KEYS_JSON and POLICY_REQUIRED_APPROVALS, or disable POLICY_TWO_PERSON_REQUIRED.' @('POLICY_TWO_PERSON_REQUIRED', 'POLICY_APPROVAL_SIGNING_KEYS_JSON', 'POLICY_REQUIRED_APPROVALS')
@@ -127,9 +139,12 @@ if (-not $response.success) {
 }
 
 $checks = @($response.checks)
+$checkNames = @($checks | ForEach-Object { [string]$_.check })
+$versionLabel = if ($null -ne $response.version -and -not [string]::IsNullOrWhiteSpace([string]$response.version)) { [string]$response.version } else { 'unknown' }
+$schemaLabel = if ($null -ne $response.healthSchemaVersion -and -not [string]::IsNullOrWhiteSpace([string]$response.healthSchemaVersion)) { [string]$response.healthSchemaVersion } else { 'unknown' }
 
 Write-Host ''
-Write-Host ('Service: {0}   Mode: {1}   hasCriticalFailure: {2}' -f $response.service, $response.mode, $response.hasCriticalFailure) -ForegroundColor Yellow
+Write-Host ('Service: {0}   Version: {1}   HealthSchema: {2}   Mode: {3}   hasCriticalFailure: {4}' -f $response.service, $versionLabel, $schemaLabel, $response.mode, $response.hasCriticalFailure) -ForegroundColor Yellow
 Write-Host ''
 
 $checks |
@@ -142,6 +157,10 @@ foreach ($item in $checks) {
   foreach ($finding in $mapped) {
     $allFindings.Add($finding) | Out-Null
   }
+}
+
+if ($response.mode -eq 'production' -and -not ($checkNames -contains 'Durable governance storage')) {
+  Add-Finding $allFindings 'critical' 'Durable governance storage check missing' 'The deployed API health schema is stale or the service is not running the governance-hardening build.' 'Redeploy the latest API build, then rerun this script and confirm the Durable governance storage check is present and PASS.' @('DATABASE_URL', 'REQUIRE_DURABLE_GOVERNANCE')
 }
 
 Write-Host ''

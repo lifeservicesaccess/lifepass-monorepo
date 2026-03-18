@@ -27,7 +27,8 @@ const milestoneStore = require('./tools/milestoneStore');
 const { createPortalRouter } = require('./portals/router');
 const { loadApiEnv } = require('./tools/loadEnv');
 const pgPool = require('./tools/pgPool');
-const { isDurableGovernanceRequired } = require('./tools/governanceMode');
+const { describeGovernanceMode, isDurableGovernanceRequired } = require('./tools/governanceMode');
+const packageJson = require('./package.json');
 
 loadApiEnv();
 
@@ -199,11 +200,11 @@ function startupChecklist() {
         : (pgPool ? 'pass' : 'warn'),
       detail: isDurableGovernanceRequired()
         ? (pgPool
-            ? 'REQUIRE_DURABLE_GOVERNANCE=1 and Postgres is configured for audit/admin persistence'
-            : 'REQUIRE_DURABLE_GOVERNANCE=1 but DATABASE_URL / PG_CONNECTION_STRING is not configured')
+            ? `${describeGovernanceMode()} and Postgres is configured for audit/admin persistence`
+            : `${describeGovernanceMode()} but DATABASE_URL / PG_CONNECTION_STRING is not configured`)
         : (pgPool
-            ? 'Postgres configured for audit/admin persistence'
-            : 'file fallback remains enabled for audit/admin stores')
+            ? `Postgres configured for audit/admin persistence; ${describeGovernanceMode()}`
+            : `${describeGovernanceMode()}; file fallback remains enabled for audit/admin stores`)
     },
     {
       check: 'POLICY_TWO_PERSON_REQUIRED readiness',
@@ -756,6 +757,8 @@ app.get('/health', (_req, res) => {
   return res.json({
     success: true,
     service: 'lifepass-api',
+    version: packageJson.version,
+    healthSchemaVersion: 2,
     mode: report.isProd ? 'production' : 'non-production',
     hasCriticalFailure,
     checks: report.items

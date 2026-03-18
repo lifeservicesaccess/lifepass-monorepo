@@ -37,6 +37,7 @@ Interpretation:
 
 - `hasCriticalFailure: true` means startup config is incomplete for production.
 - A missing or invalid checklist item usually points directly to the env var that needs fixing.
+- `HealthSchema: unknown` or a missing `Durable governance storage` check means the deployed API is stale and not running the current governance-hardening build.
 
 ## 3. Fix Critical Env Failures In Render Dashboard
 
@@ -97,6 +98,7 @@ If schema-dependent API paths fail after provisioning:
 1. Open `lifepass-api`.
 2. Use a Render shell or one-off job approach.
 3. Run `npm run db:migrate` from `services/api`.
+4. Run `npm run check:governance-db` from `services/api` to confirm the governance, audit, and milestone tables exist.
 
 ## 6. Check Web-To-API Integration
 

@@ -100,14 +100,34 @@ async function waitForAuditQuery(auditPath, minEvents = 1, attempts = 20, delayM
   return response;
 }
 
+async function waitForAuditMatch(auditPath, matcher, attempts = 40, delayMs = 50) {
+  let response = null;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    response = await requestJson(auditPath, 'GET', null, { 'x-api-key': API_KEY });
+    if (
+      response.status === 200
+      && response.body?.success === true
+      && Array.isArray(response.body.events)
+      && matcher(response.body.events)
+    ) {
+      return response;
+    }
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+  return response;
+}
+
 function startApiServer(port = API_PORT, extraEnv = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn('node', ['index.js'], {
       cwd: API_CWD,
       env: {
         ...process.env,
+        NODE_ENV: 'test',
         PORT: String(port),
         API_KEY,
+        DATABASE_URL: '',
+        PG_CONNECTION_STRING: '',
         POLICY_ADMIN_KEY,
         POLICY_ADMIN_KEYS_JSON: '',
         POLICY_ADMIN_ALLOWED_ACTORS: '',
@@ -116,6 +136,7 @@ function startApiServer(port = API_PORT, extraEnv = {}) {
         POLICY_ADMIN_JWT_AUDIENCE: '',
         POLICY_ADMIN_REQUIRED_ROLE: '',
         REQUIRE_DURABLE_GOVERNANCE: '0',
+        ALLOW_INSECURE_FILE_GOVERNANCE: '0',
         POLICY_TWO_PERSON_REQUIRED: '0',
         POLICY_REQUIRED_APPROVALS: '2',
         POLICY_APPROVAL_SIGNING_KEYS_JSON: '',
@@ -275,13 +296,27 @@ test('access decisions are recorded in portal audit log', async () => {
   const deny = await requestJson('/portals/agri/requests', 'GET', null);
   assert.equal(deny.status, 401);
 
-  const audit = await waitForAuditQuery('/portals/access-audit?limit=20', 2);
+  const audit = await waitForAuditMatch(
+    '/portals/access-audit?limit=50',
+    (events) => {
+      const hasAllow = events.some(
+        (evt) => evt.decision === 'allow' && evt.userId === userId && evt.path === '/portals/commons/me'
+      );
+      const hasDeny = events.some(
+        (evt) => evt.decision === 'deny' && evt.path === '/portals/agri/requests' && evt.status === 401
+      );
+      return hasAllow && hasDeny;
+    }
+  );
   assert.equal(audit.status, 200);
   assert.equal(audit.body.success, true);
   assert.ok(Array.isArray(audit.body.events));
-  assert.ok(audit.body.events.length >= 2);
-  const hasAllow = audit.body.events.some((evt) => evt.decision === 'allow');
-  const hasDeny = audit.body.events.some((evt) => evt.decision === 'deny');
+  const hasAllow = audit.body.events.some(
+    (evt) => evt.decision === 'allow' && evt.userId === userId && evt.path === '/portals/commons/me'
+  );
+  const hasDeny = audit.body.events.some(
+    (evt) => evt.decision === 'deny' && evt.path === '/portals/agri/requests' && evt.status === 401
+  );
   assert.equal(hasAllow, true);
   assert.equal(hasDeny, true);
 });

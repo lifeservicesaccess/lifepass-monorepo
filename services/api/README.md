@@ -116,6 +116,7 @@ $env:DEPLOY_GAS_STRATEGY='provider'; npm run deploy:sbt
 - `POLICY_APPROVAL_SIGNING_KEYS_JSON` JSON map of approver IDs to shared HMAC secrets
 - `POLICY_APPROVAL_MAX_ROWS` for proposal retention
 - `REQUIRE_DURABLE_GOVERNANCE=1` to require Postgres-backed admin/audit persistence and disable file fallback for governance stores
+- `ALLOW_INSECURE_FILE_GOVERNANCE=1` only as a temporary break-glass override if production must boot without durable governance
 
 ### Two-Person Approval Signing
 
@@ -147,6 +148,24 @@ Set service root to `services/api` and use:
 
 - Build command: `npm install`
 - Start command: `npm start`
+- In production, set `NODE_ENV=production`, attach Postgres via `DATABASE_URL` or `PG_CONNECTION_STRING`, and leave `ALLOW_INSECURE_FILE_GOVERNANCE` unset.
+- `REQUIRE_DURABLE_GOVERNANCE=1` remains the preferred explicit production setting, but the API now also fails closed by default in production if governance durability is not configured.
+
+Post-deploy verification sequence:
+
+```powershell
+cd services/api
+npm run db:migrate
+npm run check:governance-db
+powershell -ExecutionPolicy Bypass -File ..\scripts\check-render-health.ps1 -ApiBaseUrl https://lifepass-api.onrender.com
+```
+
+Expected outcome after the latest API build is deployed:
+
+- `/health` reports `healthSchemaVersion: 2`
+- `/health` includes `Durable governance storage`
+- `Durable governance storage` is `PASS`
+- `npm run check:governance-db` reports all governance/audit tables present
 
 Recommended environment variables:
 

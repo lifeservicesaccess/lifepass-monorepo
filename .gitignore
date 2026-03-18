@@ -38,3 +38,8 @@ zk/over18_js/
 zk/over18_0000.zkey
 zk/over18.zkey
 zk/over18.vkey
+apps/mobile/android/local.properties
+apps/mobile/android/.gradle/
+apps/mobile/android/app/debug.keystore
+apps/mobile/.android.run.current.txt
+apps/mobile/.doctor.current.txt

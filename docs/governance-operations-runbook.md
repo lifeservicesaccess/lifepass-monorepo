@@ -58,7 +58,7 @@ Use `--json true` if the operator wants the helper to print the message and sign
 
 ## Durable Governance Rollout
 
-Only enable durable governance after Postgres connectivity is working.
+Production now defaults to durable governance. File fallback in production should be treated as a temporary break-glass exception only.
 
 1. Provision Postgres and set `DATABASE_URL` or `PG_CONNECTION_STRING`.
 2. Run `npm run db:migrate` from `services/api`.
@@ -68,6 +68,25 @@ Only enable durable governance after Postgres connectivity is working.
 6. Restart again and confirm `/health` no longer reports file fallback.
 7. Run a full governance workflow: preview, propose, approve, execute, snapshot list, restore, and both audit exports.
 8. Only after that should the environment be treated as durable-governance ready.
+
+If production absolutely must boot before Postgres is restored, set `ALLOW_INSECURE_FILE_GOVERNANCE=1` as a temporary exception, record the incident, and remove it immediately after durable storage is healthy again.
+
+Exact verification sequence after redeploy:
+
+```powershell
+cd services/api
+npm run db:migrate
+npm run check:governance-db
+cd ..
+powershell -ExecutionPolicy Bypass -File .\scripts\check-render-health.ps1 -ApiBaseUrl https://lifepass-api.onrender.com
+```
+
+Treat the rollout as incomplete if any of the following are true:
+
+- `check-render-health.ps1` reports `HealthSchema: unknown`
+- `check-render-health.ps1` reports `Durable governance storage check missing`
+- `Durable governance storage` is not `PASS`
+- `npm run check:governance-db` reports missing tables
 
 ## Production Notes
 

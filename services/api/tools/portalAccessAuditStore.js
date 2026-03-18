@@ -8,6 +8,8 @@ const AUDIT_FILE = path.join(DATA_DIR, 'portal-access-audit.json');
 const pgPool = require('./pgPool');
 const { handleGovernanceFallback } = require('./governanceMode');
 
+let fileWriteQueue = Promise.resolve();
+
 async function readAuditEvents() {
   if (pgPool) {
     try {
@@ -58,13 +60,19 @@ async function appendAuditEvent(event) {
       handleGovernanceFallback('Portal access audit pg insert failed', e);
     }
   }
-  const all = await readAuditEvents();
-  all.push(event);
-  const maxRows = Math.max(200, Number(process.env.PORTAL_ACCESS_AUDIT_MAX_ROWS) || 2000);
-  const trimmed = all.slice(-maxRows);
-  await fs.mkdir(DATA_DIR, { recursive: true });
-  await fs.writeFile(AUDIT_FILE, JSON.stringify(trimmed, null, 2), 'utf8');
-  return event;
+
+  const writeOperation = fileWriteQueue.catch(() => {}).then(async () => {
+    const all = await readAuditEvents();
+    all.push(event);
+    const maxRows = Math.max(200, Number(process.env.PORTAL_ACCESS_AUDIT_MAX_ROWS) || 2000);
+    const trimmed = all.slice(-maxRows);
+    await fs.mkdir(DATA_DIR, { recursive: true });
+    await fs.writeFile(AUDIT_FILE, JSON.stringify(trimmed, null, 2), 'utf8');
+    return event;
+  });
+
+  fileWriteQueue = writeOperation.catch(() => {});
+  return writeOperation;
 }
 
 module.exports = {

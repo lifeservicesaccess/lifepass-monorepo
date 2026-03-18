@@ -125,6 +125,60 @@ test('startup strict fails when durable governance is required without Postgres 
   const result = await waitForExit(child);
   assert.equal(result.code, 1);
   assert.match(result.stdout, /Durable governance storage/);
-  assert.match(result.stdout, /REQUIRE_DURABLE_GOVERNANCE=1 but DATABASE_URL \/ PG_CONNECTION_STRING is not configured/);
+  assert.match(result.stdout, /REQUIRE_DURABLE_GOVERNANCE=1; Postgres-backed governance is mandatory but DATABASE_URL \/ PG_CONNECTION_STRING is not configured/);
   assert.match(result.stderr, /STARTUP_STRICT=1 and one or more startup checks failed/);
+});
+
+test('startup strict fails in production by default when durable governance lacks Postgres config', async () => {
+  const child = spawn('node', ['index.js'], {
+    cwd: API_CWD,
+    env: {
+      ...process.env,
+      PORT: '3028',
+      NODE_ENV: 'production',
+      STARTUP_STRICT: '1',
+      REQUIRE_DURABLE_GOVERNANCE: '',
+      ALLOW_INSECURE_FILE_GOVERNANCE: '',
+      DATABASE_URL: '',
+      PG_CONNECTION_STRING: '',
+      AGE_VERIFIER_ADDRESS: '0x0000000000000000000000000000000000000001',
+      PRIVATE_KEY: '',
+      SBT_CONTRACT_ADDRESS: '',
+      POLICY_ADMIN_KEY: 'test-policy-admin-key'
+    },
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+
+  const result = await waitForExit(child);
+  assert.equal(result.code, 1);
+  assert.match(result.stdout, /Durable governance storage/);
+  assert.match(result.stdout, /production default; Postgres-backed governance is mandatory unless ALLOW_INSECURE_FILE_GOVERNANCE=1 but DATABASE_URL \/ PG_CONNECTION_STRING is not configured/);
+  assert.match(result.stderr, /STARTUP_STRICT=1 and one or more startup checks failed/);
+});
+
+test('startup strict can opt into insecure production file fallback explicitly', async () => {
+  const child = spawn('node', ['index.js'], {
+    cwd: API_CWD,
+    env: {
+      ...process.env,
+      PORT: '3029',
+      NODE_ENV: 'production',
+      STARTUP_STRICT: '1',
+      REQUIRE_DURABLE_GOVERNANCE: '',
+      ALLOW_INSECURE_FILE_GOVERNANCE: '1',
+      DATABASE_URL: '',
+      PG_CONNECTION_STRING: '',
+      AGE_VERIFIER_ADDRESS: '0x0000000000000000000000000000000000000001',
+      PRIVATE_KEY: '',
+      SBT_CONTRACT_ADDRESS: '',
+      POLICY_ADMIN_KEY: 'test-policy-admin-key'
+    },
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+
+  try {
+    await waitForListen(child, 3029);
+  } finally {
+    if (!child.killed) child.kill();
+  }
 });
