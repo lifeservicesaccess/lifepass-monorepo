@@ -58,6 +58,8 @@ Most important mappings:
 - `On-chain mint mode` warning -> verify `RPC_URL`, `PRIVATE_KEY`, and `SBT_CONTRACT_ADDRESS` are all present.
 - `On-chain action anchoring mode` warning -> verify `RPC_URL`, `PRIVATE_KEY`, and `TRUST_REGISTRY_ADDRESS` are all present.
 - `LIFEPASS_SSO_JWT_SECRET configured` -> set `LIFEPASS_SSO_JWT_SECRET`.
+- `Policy admin auth mode` -> set one of `POLICY_ADMIN_KEY`, `POLICY_ADMIN_KEYS_JSON`, or `POLICY_ADMIN_JWT_SECRET`.
+- `Durable governance storage` -> confirm `DATABASE_URL` is attached from Render Postgres and `REQUIRE_DURABLE_GOVERNANCE=1` remains set.
 - `POLICY_TWO_PERSON_REQUIRED readiness` -> set `POLICY_APPROVAL_SIGNING_KEYS_JSON` and `POLICY_REQUIRED_APPROVALS`, or disable `POLICY_TWO_PERSON_REQUIRED`.
 
 After editing env vars in Render:

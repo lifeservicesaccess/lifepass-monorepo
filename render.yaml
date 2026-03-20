@@ -46,6 +46,26 @@ services:
         value: lifepass-api
       - key: LIFEPASS_SSO_DEFAULT_AUDIENCE
         value: zionstack-portals
+      - key: POLICY_ADMIN_KEY
+        sync: false
+      - key: POLICY_ADMIN_KEYS_JSON
+        sync: false
+      - key: POLICY_ADMIN_ALLOWED_ACTORS
+        sync: false
+      - key: POLICY_ADMIN_JWT_SECRET
+        sync: false
+      - key: POLICY_ADMIN_JWT_ISSUER
+        value: lifepass-admin
+      - key: POLICY_ADMIN_JWT_AUDIENCE
+        sync: false
+      - key: POLICY_ADMIN_REQUIRED_ROLE
+        value: policy_admin
+      - key: POLICY_TWO_PERSON_REQUIRED
+        value: "0"
+      - key: POLICY_REQUIRED_APPROVALS
+        value: "2"
+      - key: POLICY_APPROVAL_SIGNING_KEYS_JSON
+        sync: false
       - key: OPENAI_API_KEY
         sync: false
       - key: SUPABASE_URL
