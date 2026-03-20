@@ -100,4 +100,5 @@ Example continue payload:
 - The canonical trust, SSO, policy, and audit boundary remains in `services/api`.
 - LangGraph manages flow state; it does not replace the API as the policy enforcement layer.
 - Postgres-backed run persistence is now scaffolded; Redis can be added later for resumability and event fanout.
+- Recoverable context hydration gaps are stored under `metadata.warnings`; only hard execution failures should move a run to `failed`.
 
