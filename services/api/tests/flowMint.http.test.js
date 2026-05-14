@@ -3,6 +3,8 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 const { spawn } = require('node:child_process');
 
+const { stopChildProcess } = require('./helpers/childProcess');
+
 const profileDb = require('../tools/profileDb');
 
 const API_PORT = 3014;
@@ -52,8 +54,13 @@ function startApiServer() {
       cwd: API_CWD,
       env: {
         ...process.env,
+        NODE_ENV: 'test',
         PORT: String(API_PORT),
-        API_KEY
+        API_KEY,
+        RPC_URL: '',
+        AGE_VERIFIER_ADDRESS: '',
+        REQUIRE_AGE_VERIFIER: '',
+        USE_SNARKJS: ''
       },
       stdio: ['ignore', 'pipe', 'pipe']
     });
@@ -97,10 +104,8 @@ test.before(async () => {
   serverProcess = await startApiServer();
 });
 
-test.after(() => {
-  if (serverProcess && !serverProcess.killed) {
-    serverProcess.kill();
-  }
+test.after(async () => {
+  await stopChildProcess(serverProcess);
 });
 
 test('POST /flow/mint returns 404 when profile is missing', async () => {

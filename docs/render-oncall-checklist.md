@@ -47,6 +47,19 @@ In the Render dashboard:
 2. Open `Environment`.
 3. Compare the failing `/health` checks to these env vars.
 
+
+To fetch the latest env vars from Render before validation, use:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\export-render-api-env.ps1 -ServiceId <render_service_id> -OutFile .\.render-api.env
+```
+
+Then validate the exported env file against the repo contract:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\validate-hosted-env.ps1 -Target render-api -EnvFile .\.render-api.env
+```
+
 Most important mappings:
 
 - `CORS_ALLOWED_ORIGINS configured` -> set `CORS_ALLOWED_ORIGINS` to the deployed web origin.
@@ -58,7 +71,7 @@ Most important mappings:
 - `On-chain mint mode` warning -> verify `RPC_URL`, `PRIVATE_KEY`, and `SBT_CONTRACT_ADDRESS` are all present.
 - `On-chain action anchoring mode` warning -> verify `RPC_URL`, `PRIVATE_KEY`, and `TRUST_REGISTRY_ADDRESS` are all present.
 - `LIFEPASS_SSO_JWT_SECRET configured` -> set `LIFEPASS_SSO_JWT_SECRET`.
-- `Policy admin auth mode` -> set one of `POLICY_ADMIN_KEY`, `POLICY_ADMIN_KEYS_JSON`, or `POLICY_ADMIN_JWT_SECRET`.
+- `Policy admin auth mode` -> set exactly one admin auth mode: key mode (`POLICY_ADMIN_KEY` or `POLICY_ADMIN_KEYS_JSON`) or JWT mode (`POLICY_ADMIN_JWT_SECRET`). If health reports an invalid mixed-mode config, remove one side and redeploy.
 - `Durable governance storage` -> confirm `DATABASE_URL` is attached from Render Postgres and `REQUIRE_DURABLE_GOVERNANCE=1` remains set.
 - `POLICY_TWO_PERSON_REQUIRED readiness` -> set `POLICY_APPROVAL_SIGNING_KEYS_JSON` and `POLICY_REQUIRED_APPROVALS`, or disable `POLICY_TWO_PERSON_REQUIRED`.
 

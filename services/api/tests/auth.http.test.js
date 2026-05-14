@@ -3,6 +3,8 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 const { spawn } = require('node:child_process');
 
+const { stopChildProcess } = require('./helpers/childProcess');
+
 const API_PORT = 3015;
 const API_BASE = `http://127.0.0.1:${API_PORT}`;
 const API_CWD = __dirname + '/..';
@@ -81,10 +83,8 @@ test.before(async () => {
   serverProcess = await startApiServer();
 });
 
-test.after(() => {
-  if (serverProcess && !serverProcess.killed) {
-    serverProcess.kill();
-  }
+test.after(async () => {
+  await stopChildProcess(serverProcess);
 });
 
 test('POST /flow/mint returns 401 without API key', async () => {

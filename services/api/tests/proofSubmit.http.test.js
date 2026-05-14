@@ -3,6 +3,8 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 const { spawn } = require('node:child_process');
 
+const { stopChildProcess } = require('./helpers/childProcess');
+
 const API_PORT = 3013;
 const API_BASE = `http://127.0.0.1:${API_PORT}`;
 const API_CWD = __dirname + '/..';
@@ -48,7 +50,12 @@ function startApiServer() {
       cwd: API_CWD,
       env: {
         ...process.env,
-        PORT: String(API_PORT)
+        NODE_ENV: 'test',
+        PORT: String(API_PORT),
+        RPC_URL: '',
+        AGE_VERIFIER_ADDRESS: '',
+        REQUIRE_AGE_VERIFIER: '',
+        USE_SNARKJS: ''
       },
       stdio: ['ignore', 'pipe', 'pipe']
     });
@@ -86,10 +93,8 @@ test.before(async () => {
   serverProcess = await startApiServer();
 });
 
-test.after(() => {
-  if (serverProcess && !serverProcess.killed) {
-    serverProcess.kill();
-  }
+test.after(async () => {
+  await stopChildProcess(serverProcess);
 });
 
 test('POST /proof/submit returns 400 for missing proof/publicSignals payload fields', async () => {

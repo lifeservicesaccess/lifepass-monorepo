@@ -176,27 +176,34 @@ Performs semantic search against stored user-purpose/skills embeddings.
 - `GET /portals/health/status`
 - `GET /portals/health/age-gated-services` (requires SSO bearer token; min Silver)
 - `GET /portals/policy-matrix` (requires `x-api-key`; returns effective policy matrix)
-- `POST /portals/policy-matrix` (requires `x-api-key` + `x-policy-admin-key`; updates policy override matrix)
+- `POST /portals/policy-matrix` (requires `x-api-key` plus exactly one configured policy admin mode; updates policy override matrix)
   - When `POLICY_TWO_PERSON_REQUIRED=1`, creates a pending proposal instead of immediate apply
-- `POST /portals/policy-matrix/preview` (requires `x-api-key` + `x-policy-admin-key`; returns diff/impact preview without applying)
-- `GET /portals/policy-snapshots?limit=50` (requires `x-api-key` + `x-policy-admin-key`; returns policy snapshots)
-- `POST /portals/policy-snapshots/:snapshotId/restore` (requires `x-api-key` + `x-policy-admin-key`; restores snapshot)
+- `POST /portals/policy-matrix/preview` (requires `x-api-key` plus exactly one configured policy admin mode; returns diff/impact preview without applying)
+- `GET /portals/policy-snapshots?limit=50` (requires `x-api-key` plus exactly one configured policy admin mode; returns policy snapshots)
+- `POST /portals/policy-snapshots/:snapshotId/restore` (requires `x-api-key` plus exactly one configured policy admin mode; restores snapshot)
   - When `POLICY_TWO_PERSON_REQUIRED=1`, creates a pending proposal instead of immediate restore
-- `GET /portals/policy-approvals?status=pending&limit=50` (requires `x-api-key` + `x-policy-admin-key`; returns pending/executed proposals)
-- `GET /portals/policy-approvals/:proposalId` (requires `x-api-key` + `x-policy-admin-key`; returns proposal details)
-- `POST /portals/policy-approvals/:proposalId/approve` (requires `x-api-key` + `x-policy-admin-key`; body: `approverId`, `signature`)
+- `GET /portals/policy-approvals?status=pending&limit=50` (requires `x-api-key` plus exactly one configured policy admin mode; returns pending/executed proposals)
+- `GET /portals/policy-approvals/:proposalId` (requires `x-api-key` plus exactly one configured policy admin mode; returns proposal details)
+- `POST /portals/policy-approvals/:proposalId/approve` (requires `x-api-key` plus exactly one configured policy admin mode; body: `approverId`, `signature`)
 - `GET /portals/access-audit?limit=50` (requires `x-api-key`; returns recent allow/deny decisions)
   - Optional filters: `decision`, `covenant`, `policyKey`, `userId`
   - Optional export: `format=csv`
-- `GET /portals/access-audit/alerts` (requires `x-api-key` + `x-policy-admin-key`; deny-spike alerts by covenant)
+- `GET /portals/access-audit/alerts` (requires `x-api-key` plus exactly one configured policy admin mode; deny-spike alerts by covenant)
   - Optional query: `threshold`, `windowMinutes`
-- `GET /portals/policy-admin/audit?limit=50` (requires `x-api-key` + `x-policy-admin-key`; returns policy update audit events)
+- `GET /portals/policy-admin/audit?limit=50` (requires `x-api-key` plus exactly one configured policy admin mode; returns policy update audit events)
 
 For protected portal routes, pass `Authorization: Bearer <token>` where token is created by `/auth/sso/token`.
 
 Policy thresholds are configurable with `LIFEPASS_PORTAL_POLICY_JSON` (JSON map by covenant and policy key).
 Access decision logs are retained in file-backed storage and trimmed by `PORTAL_ACCESS_AUDIT_MAX_ROWS`.
-Policy admin update routes require `POLICY_ADMIN_KEY`; admin audit retention is controlled by `POLICY_ADMIN_AUDIT_MAX_ROWS`.
+Policy admin routes support exactly one deployment mode at a time.
+
+- Rotated key mode: configure `POLICY_ADMIN_KEY` or `POLICY_ADMIN_KEYS_JSON`, then send `x-policy-admin-key` plus optional `x-policy-admin-key-id` and `x-admin-actor`.
+- JWT mode: configure `POLICY_ADMIN_JWT_SECRET`, then send `Authorization: Bearer <token>` with a role accepted by `POLICY_ADMIN_REQUIRED_ROLE`.
+- `POLICY_ADMIN_ALLOWED_ACTORS` constrains the admin actor identity in either mode.
+- If key-based and JWT-based admin auth are configured at the same time, startup health fails and policy admin requests return `503` until the drift is removed.
+
+Admin audit retention is controlled by `POLICY_ADMIN_AUDIT_MAX_ROWS`.
 Policy snapshots are retained by `POLICY_SNAPSHOT_MAX_ROWS`. Deny alert defaults are configurable via `PORTAL_DENY_ALERT_THRESHOLD` and `PORTAL_DENY_ALERT_WINDOW_MINUTES`.
 Two-person mode uses `POLICY_TWO_PERSON_REQUIRED`, `POLICY_REQUIRED_APPROVALS`, and `POLICY_APPROVAL_SIGNING_KEYS_JSON` for signed approvals.
 

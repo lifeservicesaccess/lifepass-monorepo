@@ -6,6 +6,8 @@ const { spawn } = require('node:child_process');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 
+const { stopChildProcess } = require('./helpers/childProcess');
+
 const API_PORT = 3018;
 const API_BASE = `http://127.0.0.1:${API_PORT}`;
 const API_CWD = __dirname + '/..';
@@ -221,8 +223,8 @@ test.before(async () => {
   server = await startApiServer();
 });
 
-test.after(() => {
-  if (server && !server.killed) server.kill();
+test.after(async () => {
+  await stopChildProcess(server);
 });
 
 test('portal protected routes require bearer token', async () => {
@@ -380,7 +382,7 @@ test('policy matrix override can lower trust threshold via env config', async ()
     assert.equal(list.status, 200);
     assert.equal(list.body.success, true);
   } finally {
-    if (!overrideServer.killed) overrideServer.kill();
+    await stopChildProcess(overrideServer);
   }
 });
 
@@ -672,6 +674,6 @@ test('two-person rule requires two signed approvals before policy update execute
     }, base);
     assert.equal(after.status, 200);
   } finally {
-    if (!twoPersonServer.killed) twoPersonServer.kill();
+    await stopChildProcess(twoPersonServer);
   }
 });

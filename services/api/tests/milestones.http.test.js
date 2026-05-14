@@ -3,6 +3,8 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 const { spawn } = require('node:child_process');
 
+const { stopChildProcess } = require('./helpers/childProcess');
+
 const API_PORT = 3021;
 const API_BASE = `http://127.0.0.1:${API_PORT}`;
 const API_CWD = __dirname + '/..';
@@ -87,8 +89,8 @@ test.before(async () => {
   server = await startApiServer();
 });
 
-test.after(() => {
-  if (server && !server.killed) server.kill();
+test.after(async () => {
+  await stopChildProcess(server);
 });
 
 test('milestone create/update/list and dashboard summary work', async () => {

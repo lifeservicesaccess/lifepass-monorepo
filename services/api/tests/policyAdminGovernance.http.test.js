@@ -6,6 +6,8 @@ const fs = require('node:fs/promises');
 const { spawn } = require('node:child_process');
 const jwt = require('jsonwebtoken');
 
+const { stopChildProcess } = require('./helpers/childProcess');
+
 const API_CWD = path.join(__dirname, '..');
 const API_KEY = 'test-key-governance';
 const POLICY_OVERRIDE_FILE = path.join(API_CWD, '..', 'data', 'portal-policy-overrides.json');
@@ -68,6 +70,7 @@ function startApiServer(port, extraEnv = {}) {
         POLICY_ADMIN_JWT_ISSUER: '',
         POLICY_ADMIN_JWT_AUDIENCE: '',
         POLICY_ADMIN_REQUIRED_ROLE: 'policy_admin',
+        STARTUP_STRICT: '0',
         REQUIRE_DURABLE_GOVERNANCE: '0',
         ALLOW_INSECURE_FILE_GOVERNANCE: '0',
         LIFEPASS_SSO_JWT_SECRET: 'test-sso-secret',
@@ -135,7 +138,7 @@ test('rotated policy admin keys support key-id based admin access with actor all
     assert.equal(allowed.status, 200);
     assert.equal(allowed.body.success, true);
   } finally {
-    if (!server.killed) server.kill();
+    await stopChildProcess(server);
   }
 });
 
@@ -173,6 +176,87 @@ test('policy admin JWT can read audit export with tamper-evident root hash', asy
     assert.equal(typeof response.body.export.rootHash, 'string');
     assert.ok(response.body.export.rootHash.length > 20);
   } finally {
-    if (!server.killed) server.kill();
+    await stopChildProcess(server);
   }
+});
+
+test('mixed policy admin auth config is rejected by health and admin endpoints', async () => {
+  const port = 3029;
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const server = await startApiServer(port, {
+    POLICY_ADMIN_KEY: 'legacy-admin-key',
+    POLICY_ADMIN_JWT_SECRET: 'jwt-admin-secret'
+  });
+
+  try {
+    const health = await requestJson(baseUrl, '/health');
+    const authCheck = (health.body?.checks || []).find((item) => item.check === 'Policy admin auth mode');
+    assert.equal(health.status, 200);
+    assert.equal(authCheck?.status, 'fail');
+    assert.match(String(authCheck?.detail || ''), /choose exactly one admin auth mode/i);
+
+    const denied = await requestJson(baseUrl, '/portals/policy-matrix/preview', 'POST', {
+      matrix: { health: { ageGatedServices: { minTrustLevel: 'bronze' } } }
+    }, {
+      'x-api-key': API_KEY,
+      'x-policy-admin-key': 'legacy-admin-key'
+    });
+
+    assert.equal(denied.status, 503);
+    assert.match(String(denied.body?.error || ''), /choose exactly one admin auth mode/i);
+  } finally {
+    await stopChildProcess(server);
+  }
+});
+
+test('startup strict exits when mixed policy admin auth config is present', async () => {
+  const port = 3030;
+  const child = spawn('node', ['index.js'], {
+    cwd: API_CWD,
+    env: {
+      ...process.env,
+      NODE_ENV: 'test',
+      PORT: String(port),
+      API_KEY,
+      DATABASE_URL: '',
+      PG_CONNECTION_STRING: '',
+      POLICY_ADMIN_KEY: 'legacy-admin-key',
+      POLICY_ADMIN_KEYS_JSON: '',
+      POLICY_ADMIN_ALLOWED_ACTORS: '',
+      POLICY_ADMIN_JWT_SECRET: 'jwt-admin-secret',
+      POLICY_ADMIN_JWT_ISSUER: '',
+      POLICY_ADMIN_JWT_AUDIENCE: '',
+      POLICY_ADMIN_REQUIRED_ROLE: 'policy_admin',
+      REQUIRE_DURABLE_GOVERNANCE: '0',
+      ALLOW_INSECURE_FILE_GOVERNANCE: '0',
+      LIFEPASS_SSO_JWT_SECRET: 'test-sso-secret',
+      LIFEPASS_SSO_JWT_ISSUER: 'lifepass-api-test',
+      LIFEPASS_SSO_DEFAULT_AUDIENCE: 'zionstack-portals',
+      STARTUP_STRICT: '1'
+    },
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+
+  const output = await new Promise((resolve, reject) => {
+    let combined = '';
+    const timeout = setTimeout(() => {
+      void stopChildProcess(child).catch(() => {});
+      reject(new Error('Expected STARTUP_STRICT process to exit'));
+    }, 10000);
+
+    child.stdout.on('data', (chunk) => {
+      combined += chunk.toString();
+    });
+    child.stderr.on('data', (chunk) => {
+      combined += chunk.toString();
+    });
+    child.on('exit', (code) => {
+      clearTimeout(timeout);
+      resolve({ code, combined });
+    });
+  });
+
+  assert.notEqual(output.code, 0);
+  assert.match(output.combined, /STARTUP_STRICT=1/i);
+  assert.match(output.combined, /choose exactly one admin auth mode/i);
 });

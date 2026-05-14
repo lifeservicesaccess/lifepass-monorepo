@@ -90,7 +90,11 @@ function Get-FindingsForCheck {
     }
     'Policy admin auth mode' {
       if ($status -ne 'pass') {
-        Add-Finding $findings 'critical' $check 'Governance endpoints are not safely reachable with the expected admin auth mode.' 'Render dashboard -> lifepass-api -> Environment -> configure rotated keys or admin JWT settings and redeploy.' @('POLICY_ADMIN_KEY', 'POLICY_ADMIN_KEYS_JSON', 'POLICY_ADMIN_JWT_SECRET', 'POLICY_ADMIN_ALLOWED_ACTORS')
+        if ($detail -match 'choose exactly one admin auth mode') {
+          Add-Finding $findings 'critical' $check 'Governance endpoints are misconfigured because both admin auth modes are enabled at once.' 'Render dashboard -> lifepass-api -> Environment -> keep exactly one admin auth mode: key mode (POLICY_ADMIN_KEY or POLICY_ADMIN_KEYS_JSON) or JWT mode (POLICY_ADMIN_JWT_SECRET), then redeploy.' @('POLICY_ADMIN_KEY', 'POLICY_ADMIN_KEYS_JSON', 'POLICY_ADMIN_JWT_SECRET', 'POLICY_ADMIN_ALLOWED_ACTORS')
+        } else {
+          Add-Finding $findings 'critical' $check 'Governance endpoints are not safely reachable with the expected admin auth mode.' 'Render dashboard -> lifepass-api -> Environment -> configure exactly one admin auth mode and redeploy.' @('POLICY_ADMIN_KEY', 'POLICY_ADMIN_KEYS_JSON', 'POLICY_ADMIN_JWT_SECRET', 'POLICY_ADMIN_ALLOWED_ACTORS')
+        }
       }
     }
     'Durable governance storage' {

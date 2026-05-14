@@ -2,6 +2,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { spawn } = require('node:child_process');
 
+const { stopChildProcess } = require('./helpers/childProcess');
+
 const API_CWD = __dirname + '/..';
 const FAIL_PORT = 3025;
 const PASS_PORT = 3026;
@@ -12,8 +14,9 @@ function waitForExit(child, timeoutMs = 10000) {
     let stderr = '';
 
     const timeout = setTimeout(() => {
-      child.kill();
-      reject(new Error('timeout waiting for process exit'));
+      void stopChildProcess(child).finally(() => {
+        reject(new Error('timeout waiting for process exit'));
+      });
     }, timeoutMs);
 
     child.stdout.on('data', (chunk) => {
@@ -36,8 +39,9 @@ function waitForListen(child, port, timeoutMs = 10000) {
     let stderr = '';
 
     const timeout = setTimeout(() => {
-      child.kill();
-      reject(new Error(`timeout waiting for API listen on port ${port}`));
+      void stopChildProcess(child).finally(() => {
+        reject(new Error(`timeout waiting for API listen on port ${port}`));
+      });
     }, timeoutMs);
 
     child.stdout.on('data', (chunk) => {
@@ -100,7 +104,7 @@ test('startup strict passes when verifier gate is enabled and AGE_VERIFIER_ADDRE
   try {
     await waitForListen(child, PASS_PORT);
   } finally {
-    if (!child.killed) child.kill();
+    await stopChildProcess(child);
   }
 });
 
@@ -179,6 +183,6 @@ test('startup strict can opt into insecure production file fallback explicitly',
   try {
     await waitForListen(child, 3029);
   } finally {
-    if (!child.killed) child.kill();
+    await stopChildProcess(child);
   }
 });

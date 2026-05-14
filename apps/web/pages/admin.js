@@ -1,17 +1,7 @@
 import React, { useState } from 'react';
 import axios from 'axios';
 import Link from 'next/link';
-
-function normalizeBaseUrl(baseUrl) {
-  if (!baseUrl) return '';
-  return baseUrl.replace(/\/$/, '');
-}
-
-function apiPath(pathname) {
-  const configured = normalizeBaseUrl(process.env.NEXT_PUBLIC_API_BASE_URL);
-  if (!configured) return pathname;
-  return `${configured}${pathname}`;
-}
+import { getAdminSessionSummary, isAdminSessionConfigured, readAdminSessionFromRequest } from '../lib/adminSession';
 
 const SAMPLE_POLICY = JSON.stringify({
   health: {
@@ -56,12 +46,16 @@ async function copyText(text) {
   document.body.removeChild(input);
 }
 
-export default function AdminPage() {
-  const [apiKey, setApiKey] = useState('');
-  const [adminMode, setAdminMode] = useState('key');
-  const [adminCredential, setAdminCredential] = useState('');
-  const [adminKeyId, setAdminKeyId] = useState('');
-  const [adminActor, setAdminActor] = useState('governance-admin');
+async function proxyRequest(pathname, method = 'GET', body = null) {
+  const response = await axios.post('/api/admin/proxy', {
+    pathname,
+    method,
+    body
+  });
+  return response.data;
+}
+
+export default function AdminPage({ sessionSummary }) {
   const [reason, setReason] = useState('');
   const [replaceMode, setReplaceMode] = useState(false);
   const [policyJson, setPolicyJson] = useState(SAMPLE_POLICY);
@@ -97,25 +91,16 @@ export default function AdminPage() {
     };
   }
 
-  function authHeaders() {
-    const headers = {};
-    if (apiKey) headers['x-api-key'] = apiKey;
-    if (adminMode === 'jwt') {
-      if (adminCredential) headers.Authorization = `Bearer ${adminCredential}`;
-      return headers;
-    }
-    if (adminCredential) headers['x-policy-admin-key'] = adminCredential;
-    if (adminKeyId) headers['x-policy-admin-key-id'] = adminKeyId;
-    if (adminActor) headers['x-admin-actor'] = adminActor;
-    return headers;
-  }
-
   async function runAction(label, action) {
     try {
       setStatus(`${label}...`);
       await action();
       setStatus(`${label} complete.`);
     } catch (err) {
+      if (err?.response?.status === 401) {
+        window.location.href = '/admin/access';
+        return;
+      }
       const message = err?.response?.data?.error || err?.message || 'Request failed';
       setStatus(`${label} failed: ${message}`);
     }
@@ -123,42 +108,37 @@ export default function AdminPage() {
 
   async function loadConsole() {
     await runAction('Loading admin console', async () => {
-      const headers = authHeaders();
       const [healthRes, matrixRes, approvalsRes, snapshotsRes, policyAuditRes, accessAuditRes, alertsRes] = await Promise.all([
-        axios.get(apiPath('/health')),
-        axios.get(apiPath('/portals/policy-matrix'), { headers }),
-        axios.get(apiPath('/portals/policy-approvals?limit=20'), { headers }),
-        axios.get(apiPath('/portals/policy-snapshots?limit=20'), { headers }),
-        axios.get(apiPath('/portals/policy-admin/audit?limit=20'), { headers }),
-        axios.get(apiPath('/portals/access-audit?limit=20'), { headers }),
-        axios.get(apiPath('/portals/access-audit/alerts?threshold=1&windowMinutes=1440'), { headers })
+        proxyRequest('/health'),
+        proxyRequest('/portals/policy-matrix'),
+        proxyRequest('/portals/policy-approvals?limit=20'),
+        proxyRequest('/portals/policy-snapshots?limit=20'),
+        proxyRequest('/portals/policy-admin/audit?limit=20'),
+        proxyRequest('/portals/access-audit?limit=20'),
+        proxyRequest('/portals/access-audit/alerts?threshold=1&windowMinutes=1440')
       ]);
 
-      setHealth(healthRes.data);
-      setMatrix(matrixRes.data?.matrix || null);
-      setApprovals(approvalsRes.data?.proposals || []);
-      setSnapshots(snapshotsRes.data?.snapshots || []);
-      setPolicyAudit(policyAuditRes.data?.events || []);
-      setAccessAudit(accessAuditRes.data?.events || []);
-      setAlerts(alertsRes.data?.alerts || []);
+      setHealth(healthRes);
+      setMatrix(matrixRes?.matrix || null);
+      setApprovals(approvalsRes?.proposals || []);
+      setSnapshots(snapshotsRes?.snapshots || []);
+      setPolicyAudit(policyAuditRes?.events || []);
+      setAccessAudit(accessAuditRes?.events || []);
+      setAlerts(alertsRes?.alerts || []);
     });
   }
 
   async function previewPolicyChange() {
     await runAction('Previewing policy update', async () => {
-      const res = await axios.post(apiPath('/portals/policy-matrix/preview'), policyPayload(), {
-        headers: authHeaders()
-      });
-      setPreview(res.data);
+      const res = await proxyRequest('/portals/policy-matrix/preview', 'POST', policyPayload());
+      setPreview(res);
     });
   }
 
   async function applyPolicyChange() {
     await runAction('Applying policy update', async () => {
-      const res = await axios.post(apiPath('/portals/policy-matrix'), policyPayload(), {
-        headers: authHeaders()
-      });
-      setPreview(res.data);
+      const res = await proxyRequest('/portals/policy-matrix', 'POST', policyPayload());
+      setPreview(res);
       await loadConsole();
     });
   }
@@ -169,10 +149,10 @@ export default function AdminPage() {
       return;
     }
     await runAction('Restoring snapshot', async () => {
-      const res = await axios.post(apiPath(`/portals/policy-snapshots/${encodeURIComponent(snapshotId)}/restore`), {
+      const res = await proxyRequest(`/portals/policy-snapshots/${encodeURIComponent(snapshotId)}/restore`, 'POST', {
         reason
-      }, { headers: authHeaders() });
-      setPreview(res.data);
+      });
+      setPreview(res);
       await loadConsole();
     });
   }
@@ -183,11 +163,11 @@ export default function AdminPage() {
       return;
     }
     await runAction('Approving proposal', async () => {
-      const res = await axios.post(apiPath(`/portals/policy-approvals/${encodeURIComponent(proposalId)}/approve`), {
+      const res = await proxyRequest(`/portals/policy-approvals/${encodeURIComponent(proposalId)}/approve`, 'POST', {
         approverId,
         signature: approvalSignature
-      }, { headers: authHeaders() });
-      setPreview(res.data);
+      });
+      setPreview(res);
       await loadConsole();
     });
   }
@@ -197,12 +177,20 @@ export default function AdminPage() {
       ? '/portals/policy-admin/audit/export'
       : '/portals/access-audit/export';
     await runAction(`Exporting ${scope} audit`, async () => {
-      const res = await axios.get(apiPath(pathname), { headers: authHeaders() });
+      const res = await proxyRequest(pathname);
       setExports((current) => ({
         ...current,
-        [scope]: res.data?.export || null
+        [scope]: res?.export || null
       }));
     });
+  }
+
+  async function signOut() {
+    try {
+      await axios.delete('/api/admin/session');
+    } finally {
+      window.location.href = '/admin/access';
+    }
   }
 
   async function copyApprovalMessage() {
@@ -262,44 +250,18 @@ export default function AdminPage() {
         </section>
 
         <section className="lp-panel">
-          <h2 className="lp-panel-title">Access</h2>
-          <div className="lp-grid lp-grid-4" style={{ marginTop: '0.76rem' }}>
-            <div>
-              <label className="lp-label" htmlFor="adminApiKey">API key</label>
-              <input id="adminApiKey" className="lp-input" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="x-api-key" />
-            </div>
-            <div>
-              <label className="lp-label" htmlFor="adminMode">Admin auth mode</label>
-              <select id="adminMode" className="lp-select" value={adminMode} onChange={(e) => setAdminMode(e.target.value)}>
-                <option value="key">Rotated key</option>
-                <option value="jwt">Bearer JWT</option>
-              </select>
-            </div>
-            <div>
-              <label className="lp-label" htmlFor="adminCredential">Credential</label>
-              <input id="adminCredential" className="lp-input" value={adminCredential} onChange={(e) => setAdminCredential(e.target.value)} placeholder={adminMode === 'jwt' ? 'Bearer token' : 'Admin key'} />
-            </div>
-            <div>
-              <label className="lp-label" htmlFor="adminKeyId">Key ID / actor</label>
-              {adminMode === 'jwt' ? (
-                <input id="adminActor" className="lp-input" value={adminActor} onChange={(e) => setAdminActor(e.target.value)} placeholder="Expected JWT actor" />
-              ) : (
-                <input id="adminKeyId" className="lp-input" value={adminKeyId} onChange={(e) => setAdminKeyId(e.target.value)} placeholder="current" />
-              )}
-            </div>
+          <h2 className="lp-panel-title">Session</h2>
+          <div className="lp-list" style={{ marginTop: '0.76rem' }}>
+            <p><strong>Mode</strong> {sessionSummary?.adminMode || 'unknown'}</p>
+            <p><strong>Actor</strong> {sessionSummary?.actor || 'unknown'}</p>
+            <p>The browser no longer sends raw admin credentials to the API. This console now runs through a server-side admin session and proxy.</p>
           </div>
-
-          {adminMode === 'key' ? (
-            <div style={{ marginTop: '0.76rem' }}>
-              <label className="lp-label" htmlFor="adminActorHeader">Admin actor</label>
-              <input id="adminActorHeader" className="lp-input" value={adminActor} onChange={(e) => setAdminActor(e.target.value)} placeholder="governance-admin" />
-            </div>
-          ) : null}
 
           <div className="lp-actions">
             <button className="lp-button" onClick={loadConsole}>Load Console</button>
             <button className="lp-button-secondary" onClick={() => exportAudit('policy')}>Export Policy Audit</button>
             <button className="lp-button-secondary" onClick={() => exportAudit('access')}>Export Access Audit</button>
+            <button className="lp-button-secondary" type="button" onClick={signOut}>Sign Out</button>
           </div>
 
           {status ? <p className="lp-status">{status}</p> : null}
@@ -445,4 +407,31 @@ export default function AdminPage() {
       </div>
     </main>
   );
+}
+
+export async function getServerSideProps(context) {
+  if (!isAdminSessionConfigured()) {
+    return {
+      redirect: {
+        destination: '/admin/access?error=session-secret-missing',
+        permanent: false
+      }
+    };
+  }
+
+  const session = readAdminSessionFromRequest(context.req);
+  if (!session) {
+    return {
+      redirect: {
+        destination: '/admin/access',
+        permanent: false
+      }
+    };
+  }
+
+  return {
+    props: {
+      sessionSummary: getAdminSessionSummary(session)
+    }
+  };
 }

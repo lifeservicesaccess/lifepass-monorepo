@@ -134,6 +134,12 @@ function Write-ApiEnvLocal {
     "LIFEPASS_PORTAL_POLICY_JSON=$($Values['LIFEPASS_PORTAL_POLICY_JSON'])",
     "PORTAL_ACCESS_AUDIT_MAX_ROWS=$($Values['PORTAL_ACCESS_AUDIT_MAX_ROWS'])",
     "POLICY_ADMIN_KEY=$($Values['POLICY_ADMIN_KEY'])",
+    "POLICY_ADMIN_KEYS_JSON=$($Values['POLICY_ADMIN_KEYS_JSON'])",
+    "POLICY_ADMIN_ALLOWED_ACTORS=$($Values['POLICY_ADMIN_ALLOWED_ACTORS'])",
+    "POLICY_ADMIN_JWT_SECRET=$($Values['POLICY_ADMIN_JWT_SECRET'])",
+    "POLICY_ADMIN_JWT_ISSUER=$($Values['POLICY_ADMIN_JWT_ISSUER'])",
+    "POLICY_ADMIN_JWT_AUDIENCE=$($Values['POLICY_ADMIN_JWT_AUDIENCE'])",
+    "POLICY_ADMIN_REQUIRED_ROLE=$($Values['POLICY_ADMIN_REQUIRED_ROLE'])",
     "POLICY_ADMIN_AUDIT_MAX_ROWS=$($Values['POLICY_ADMIN_AUDIT_MAX_ROWS'])",
     "POLICY_SNAPSHOT_MAX_ROWS=$($Values['POLICY_SNAPSHOT_MAX_ROWS'])",
     "PORTAL_DENY_ALERT_THRESHOLD=$($Values['PORTAL_DENY_ALERT_THRESHOLD'])",
@@ -142,6 +148,8 @@ function Write-ApiEnvLocal {
     "POLICY_REQUIRED_APPROVALS=$($Values['POLICY_REQUIRED_APPROVALS'])",
     "POLICY_APPROVAL_SIGNING_KEYS_JSON=$($Values['POLICY_APPROVAL_SIGNING_KEYS_JSON'])",
     "POLICY_APPROVAL_MAX_ROWS=$($Values['POLICY_APPROVAL_MAX_ROWS'])",
+    "REQUIRE_DURABLE_GOVERNANCE=$($Values['REQUIRE_DURABLE_GOVERNANCE'])",
+    "ALLOW_INSECURE_FILE_GOVERNANCE=$($Values['ALLOW_INSECURE_FILE_GOVERNANCE'])",
     '',
     "OPENAI_API_KEY=$($Values['OPENAI_API_KEY'])"
   )
@@ -197,6 +205,12 @@ $values = @{
   LIFEPASS_PORTAL_POLICY_JSON = Get-Value -Name 'LIFEPASS_PORTAL_POLICY_JSON' -ApiLocal $apiLocal -Api $api -WebLocal $webLocal -Web $web
   PORTAL_ACCESS_AUDIT_MAX_ROWS = Get-Value -Name 'PORTAL_ACCESS_AUDIT_MAX_ROWS' -ApiLocal $apiLocal -Api $api -WebLocal $webLocal -Web $web
   POLICY_ADMIN_KEY = Get-Value -Name 'POLICY_ADMIN_KEY' -ApiLocal $apiLocal -Api $api -WebLocal $webLocal -Web $web
+  POLICY_ADMIN_KEYS_JSON = Get-Value -Name 'POLICY_ADMIN_KEYS_JSON' -ApiLocal $apiLocal -Api $api -WebLocal $webLocal -Web $web
+  POLICY_ADMIN_ALLOWED_ACTORS = Get-Value -Name 'POLICY_ADMIN_ALLOWED_ACTORS' -ApiLocal $apiLocal -Api $api -WebLocal $webLocal -Web $web
+  POLICY_ADMIN_JWT_SECRET = Get-Value -Name 'POLICY_ADMIN_JWT_SECRET' -ApiLocal $apiLocal -Api $api -WebLocal $webLocal -Web $web
+  POLICY_ADMIN_JWT_ISSUER = Get-Value -Name 'POLICY_ADMIN_JWT_ISSUER' -ApiLocal $apiLocal -Api $api -WebLocal $webLocal -Web $web
+  POLICY_ADMIN_JWT_AUDIENCE = Get-Value -Name 'POLICY_ADMIN_JWT_AUDIENCE' -ApiLocal $apiLocal -Api $api -WebLocal $webLocal -Web $web
+  POLICY_ADMIN_REQUIRED_ROLE = Get-Value -Name 'POLICY_ADMIN_REQUIRED_ROLE' -ApiLocal $apiLocal -Api $api -WebLocal $webLocal -Web $web
   POLICY_ADMIN_AUDIT_MAX_ROWS = Get-Value -Name 'POLICY_ADMIN_AUDIT_MAX_ROWS' -ApiLocal $apiLocal -Api $api -WebLocal $webLocal -Web $web
   POLICY_SNAPSHOT_MAX_ROWS = Get-Value -Name 'POLICY_SNAPSHOT_MAX_ROWS' -ApiLocal $apiLocal -Api $api -WebLocal $webLocal -Web $web
   PORTAL_DENY_ALERT_THRESHOLD = Get-Value -Name 'PORTAL_DENY_ALERT_THRESHOLD' -ApiLocal $apiLocal -Api $api -WebLocal $webLocal -Web $web
@@ -205,6 +219,8 @@ $values = @{
   POLICY_REQUIRED_APPROVALS = Get-Value -Name 'POLICY_REQUIRED_APPROVALS' -ApiLocal $apiLocal -Api $api -WebLocal $webLocal -Web $web
   POLICY_APPROVAL_SIGNING_KEYS_JSON = Get-Value -Name 'POLICY_APPROVAL_SIGNING_KEYS_JSON' -ApiLocal $apiLocal -Api $api -WebLocal $webLocal -Web $web
   POLICY_APPROVAL_MAX_ROWS = Get-Value -Name 'POLICY_APPROVAL_MAX_ROWS' -ApiLocal $apiLocal -Api $api -WebLocal $webLocal -Web $web
+  REQUIRE_DURABLE_GOVERNANCE = Get-Value -Name 'REQUIRE_DURABLE_GOVERNANCE' -ApiLocal $apiLocal -Api $api -WebLocal $webLocal -Web $web
+  ALLOW_INSECURE_FILE_GOVERNANCE = Get-Value -Name 'ALLOW_INSECURE_FILE_GOVERNANCE' -ApiLocal $apiLocal -Api $api -WebLocal $webLocal -Web $web
   OPENAI_API_KEY = Get-Value -Name 'OPENAI_API_KEY' -ApiLocal $apiLocal -Api $api -WebLocal $webLocal -Web $web
 }
 

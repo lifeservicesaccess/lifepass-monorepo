@@ -102,10 +102,10 @@ $env:DEPLOY_GAS_STRATEGY='provider'; npm run deploy:sbt
 - `LIFEPASS_SSO_JWT_EXPIRES_IN` (default `15m`)
 - `LIFEPASS_PORTAL_POLICY_JSON` for covenant policy overrides (e.g. route trust thresholds)
 - `PORTAL_ACCESS_AUDIT_MAX_ROWS` for portal decision log retention
-- `POLICY_ADMIN_KEY` for legacy single-secret policy admin access
-- `POLICY_ADMIN_KEYS_JSON` for rotated policy admin keys (key-id to secret map)
+- `POLICY_ADMIN_KEY` for legacy single-secret policy admin access when key mode is selected
+- `POLICY_ADMIN_KEYS_JSON` for rotated policy admin keys (key-id to secret map) when key mode is selected
 - `POLICY_ADMIN_ALLOWED_ACTORS` comma-separated allowlist for key-auth actors and admin JWT identities
-- `POLICY_ADMIN_JWT_SECRET` to enable bearer-token policy admin access
+- `POLICY_ADMIN_JWT_SECRET` to enable bearer-token policy admin access when JWT mode is selected
 - `POLICY_ADMIN_JWT_ISSUER`, `POLICY_ADMIN_JWT_AUDIENCE`, `POLICY_ADMIN_REQUIRED_ROLE` to constrain admin JWT validation
 - `POLICY_ADMIN_AUDIT_MAX_ROWS` for policy admin audit retention
 - `POLICY_SNAPSHOT_MAX_ROWS` for retained policy snapshots
@@ -119,6 +119,8 @@ $env:DEPLOY_GAS_STRATEGY='provider'; npm run deploy:sbt
 - `ALLOW_INSECURE_FILE_GOVERNANCE=1` only as a temporary break-glass override if production must boot without durable governance
 
 ### Two-Person Approval Signing
+
+Choose exactly one admin auth mode per deployment. Do not set key-based policy admin config together with `POLICY_ADMIN_JWT_SECRET`; the API treats that as a configuration failure and `STARTUP_STRICT=1` will refuse to boot.
 
 Do not place approval shared secrets in the browser admin UI. Generate signatures offline instead:
 

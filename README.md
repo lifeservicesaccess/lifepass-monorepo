@@ -62,8 +62,29 @@ This repo now includes platform config for deploying `services/api` directly fro
 - Render blueprint: `render.yaml`
 - Railway service config: `railway.json`
 
+
 After provisioning, set required secrets (`API_KEY`, `CORS_ALLOWED_ORIGINS`, `RPC_URL`, `PRIVATE_KEY`, `SBT_CONTRACT_ADDRESS`) and verify startup diagnostics:
 
 ```bash
 curl https://<api-domain>/health
+```
+
+## Exporting Hosted Environment Snapshots
+
+To fetch the latest environment variables from Render or Railway before validation, use the provided helper scripts:
+
+```powershell
+# Export Render API env vars to .render-api.env
+powershell -ExecutionPolicy Bypass -File .\scripts\export-render-api-env.ps1 -ServiceId <render_service_id> -OutFile .\.render-api.env
+
+# Export Railway API env vars to .railway-api.env
+powershell -ExecutionPolicy Bypass -File .\scripts\export-railway-api-env.ps1 -ProjectId <railway_project_id> -ServiceName <service_name> -OutFile .\.railway-api.env
+```
+
+Then validate the exported env files against the repo deployment contract:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\validate-hosted-env.ps1 -Target render-api -EnvFile .\.render-api.env
+powershell -ExecutionPolicy Bypass -File .\scripts\validate-hosted-env.ps1 -Target railway-api -EnvFile .\.railway-api.env
+powershell -ExecutionPolicy Bypass -File .\scripts\validate-hosted-env.ps1 -Target vercel-web -EnvFile .\.vercel-web.env
 ```

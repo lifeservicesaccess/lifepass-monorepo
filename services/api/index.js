@@ -190,7 +190,7 @@ function startupChecklist() {
     },
     {
       check: 'Policy admin auth mode',
-      status: policyAdminAccess.configured ? 'pass' : 'fail',
+      status: policyAdminAccess.mixedMode ? 'fail' : (policyAdminAccess.configured ? 'pass' : 'warn'),
       detail: policyAdminAccess.detail
     },
     {
@@ -532,16 +532,22 @@ function getPolicyAdminAccessPreconditions() {
   const allowlist = parsePolicyAdminActorAllowlist();
   const keyCount = Object.keys(keyMap).length;
   const hasJwt = Boolean(jwtConfig.secret);
+  const mixedMode = hasJwt && keyCount > 0;
+  const mode = hasJwt ? 'jwt' : (keyCount > 0 ? 'key' : null);
   return {
-    configured: hasJwt || keyCount > 0,
-    detail: hasJwt
-      ? `JWT admin auth enabled${allowlist.length ? ` with ${allowlist.length} allowed actor(s)` : ''}`
-      : (keyCount > 0
-          ? `${keyCount} policy admin key(s) configured${allowlist.length ? ` with ${allowlist.length} allowed actor(s)` : ''}`
-          : 'configure POLICY_ADMIN_KEY / POLICY_ADMIN_KEYS_JSON or POLICY_ADMIN_JWT_SECRET'),
+    configured: (hasJwt || keyCount > 0) && !mixedMode,
+    detail: mixedMode
+      ? 'invalid config: choose exactly one admin auth mode (POLICY_ADMIN_KEY / POLICY_ADMIN_KEYS_JSON or POLICY_ADMIN_JWT_SECRET)'
+      : (hasJwt
+          ? `JWT admin auth enabled${allowlist.length ? ` with ${allowlist.length} allowed actor(s)` : ''}`
+          : (keyCount > 0
+              ? `${keyCount} policy admin key(s) configured${allowlist.length ? ` with ${allowlist.length} allowed actor(s)` : ''}`
+              : 'configure POLICY_ADMIN_KEY / POLICY_ADMIN_KEYS_JSON or POLICY_ADMIN_JWT_SECRET')),
     keyCount,
     hasJwt,
-    allowlistCount: allowlist.length
+    allowlistCount: allowlist.length,
+    mixedMode,
+    mode
   };
 }
 
@@ -1024,6 +1030,14 @@ function requireSsoConfigured(req, res, next) {
 }
 
 function requirePolicyAdminAccess(req, res, next) {
+  const accessPreconditions = getPolicyAdminAccessPreconditions();
+  if (accessPreconditions.mixedMode) {
+    return res.status(503).json({
+      success: false,
+      error: 'Policy admin auth is misconfigured: choose exactly one admin auth mode'
+    });
+  }
+
   const jwtConfig = getPolicyAdminJwtConfig();
   const authHeader = req.header('authorization') || '';
   const parts = authHeader.split(' ');
