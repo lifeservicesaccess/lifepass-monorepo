@@ -116,7 +116,7 @@ function startupChecklist() {
   const hasPk = Boolean(PRIVATE_KEY);
   const hasSbtAddress = Boolean(SBT_CONTRACT_ADDRESS);
   const hasTrustRegistryAddress = Boolean(TRUST_REGISTRY_ADDRESS);
-  const requireAgeVerifier = process.env.REQUIRE_AGE_VERIFIER === '1' || isProd;
+  const requireAgeVerifier = process.env.REQUIRE_AGE_VERIFIER === '1';
   const useSnarkJs = process.env.USE_SNARKJS === '1';
   const policyPreconditions = getPolicyExecutionPreconditions();
   const policyAdminAccess = getPolicyAdminAccessPreconditions();

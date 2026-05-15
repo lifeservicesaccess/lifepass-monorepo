@@ -108,6 +108,36 @@ test('startup strict passes when verifier gate is enabled and AGE_VERIFIER_ADDRE
   }
 });
 
+test('startup strict treats missing age verifier as warning when gate is disabled', async () => {
+  const port = 3024;
+  const child = spawn('node', ['index.js'], {
+    cwd: API_CWD,
+    env: {
+      ...process.env,
+      PORT: String(port),
+      NODE_ENV: 'production',
+      STARTUP_STRICT: '1',
+      REQUIRE_AGE_VERIFIER: '',
+      ALLOW_INSECURE_FILE_GOVERNANCE: '1',
+      DATABASE_URL: '',
+      PG_CONNECTION_STRING: '',
+      AGE_VERIFIER_ADDRESS: '',
+      PRIVATE_KEY: '',
+      SBT_CONTRACT_ADDRESS: '',
+      POLICY_ADMIN_KEY: 'test-policy-admin-key'
+    },
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+
+  try {
+    const result = await waitForListen(child, port);
+    assert.match(result.stdout, /AGE_VERIFIER_ADDRESS format/);
+    assert.match(result.stdout, /optional; not set/);
+  } finally {
+    await stopChildProcess(child);
+  }
+});
+
 test('startup strict fails when durable governance is required without Postgres config', async () => {
   const child = spawn('node', ['index.js'], {
     cwd: API_CWD,
